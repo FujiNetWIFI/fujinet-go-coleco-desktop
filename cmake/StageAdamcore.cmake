@@ -62,6 +62,12 @@ if(ADAMCORE_RESTAGE OR NOT EXISTS "${ADAMCORE_GEN}/src/machine.c"
   file(MAKE_DIRECTORY "${ADAMCORE_GEN}")
   file(COPY "${ADAMCORE_DIR}/include" "${ADAMCORE_DIR}/src"
        DESTINATION "${ADAMCORE_GEN}")
+  # adamcore ships its own translation-unit list so that a source added
+  # upstream cannot silently break a staging consumer's link.
+  if(EXISTS "${ADAMCORE_DIR}/adamcore-sources.cmake")
+    file(COPY_FILE "${ADAMCORE_DIR}/adamcore-sources.cmake"
+                   "${ADAMCORE_GEN}/adamcore-sources.cmake")
+  endif()
   if(NOT EXISTS "${ADAMCORE_GEN}/src/machine.c")
     message(FATAL_ERROR "adamcore staging failed (source: ${ADAMCORE_DIR})")
   endif()

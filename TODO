@@ -84,62 +84,86 @@ Done (this pass) -- M0
      libcoleco_core.a and ldd on the test binary shows only libm/libc.
 
 
-Next -- M1: the adamcore work (upstream)
-----------------------------------------
+Done (this pass) -- M1: the adamcore work (upstream)
+----------------------------------------------------
 
-Seven commits, in this order, so a regression bisects cleanly. harte and
-zexdoc bind their own mem_read and are untouched throughout, so they stay the
-regression gate on z80.c -- which none of this modifies.
+Six commits on adamcore's colecovision-cart-and-sgm branch (a70711f..f9f3820),
+in an order chosen so a regression bisects cleanly. harte and zexdoc bind
+their own mem_read and were untouched throughout, so they stayed the
+regression gate on z80.c -- which none of this modified.
 
-  [ ] 1. commit split: mem_read_at(c, a, commit); mem_read -> 1,
-         machine_mem_read -> 0. No behaviour change yet.
-         WHY IT MATTERS: machine_mem_read (machine.c:340) is currently just
-         mem_read, and adamcore_peek/peek_block reach it from the debugger.
-         adam-desktop's debugger.c peeks 4 bytes PER INSTRUCTION while
-         tracing, and the whole memory view per refresh -- all of which would
-         arm REGSEL, append TX bytes, and hit FN_HOT_SWAP at $FDFE. Opening
-         the debugger would corrupt the protocol.
-  [ ] 2. adamcore_cart_ops vtable + hooks at machine.c:63 (read) and :82
-         (write). ops->reset is POWER-ON ONLY -- machine_reset must stay
-         untouched, because the cartridge edge carries no reset line and
-         FN_R_ACKSEQ has to survive a console reset (the client derives its
-         next SEQ from the cart's value, never a local counter).
-         adamcore_poke must NOT reach ops->write, or the debugger's memory
-         editor fires mapper bank switches.
-  [ ] 3. adamcore_cart_insert + cart_fill extraction. NOT the mailbox swap
-         path (that is a memcpy inside this repo's device); this is for
-         drag-and-drop, the CLI and tests.
-  [ ] 4. CV memory accuracy. THIS IS A BEHAVIOUR CHANGE, so it lands alone:
-         adamcore today gives a stock ColecoVision a full readable/writable
-         24K at $2000-$7FFF, which is SGM-with-RAM-always-on, not a bare
-         console. Real hardware: 1K at $6000-$7FFF mirrored x4, open bus
-         below. The mirror is not cosmetic -- it is exactly why the cartridge
-         firmware is two-tier (A15 is not on the connector, so a RAM access at
-         $7C00 aliases onto a cart read of $FC00). Test corpus: cartridges
-         that work today and rely on the mirror.
-  [ ] 5. PSG refactor, no AY yet: psg.c takes the queue, timeline, snap and
-         mix; sn76489.c becomes a pure chip. Two independent renderers WOULD
-         drift -- sn_render's resync jumps sample_pos by up to
-         MAX_LEAD-TARGET_LEAD. Gate on a golden capture from step 4.
-  [ ] 6. AY-3-8910 + ports $50-$53 + cfg.sgm. Queue {when,target,reg,val} not
-         raw bytes (a dropped entry must not desynchronise the address latch).
-         $52 reads an emu-thread register mirror, not the audio thread's
-         synthesis state. Do NOT rescale amp_table -- add a saturating store
-         instead; with the SGM absent the output must stay bit-identical.
-         Gate $7F on cfg.start_machine == CV, never on game_mode (which any
-         mode-1 reset sets, including an ADAM user pressing game reset).
-  [ ] 7. PROVENANCE.md (GI AY-3-8910 datasheet, Opcode SGM docs, the
-         expansion-connector pinout), README.md:24 ("Out of scope (v1): SGM"
-         no longer holds), adamcore-sources.cmake, cli -sgm flag.
+  [x] 1. commit split: mem_read_at(c, a, commit); mem_read -> 1,
+         machine_mem_read -> 0. Same for writes. No behaviour change.
+  [x] 2. adamcore_cart_ops vtable + adamcore_cart_insert.
+         CORRECTION to the plan, found by writing the test: the debugger's
+         peek DOES reach the device, and has to -- otherwise adamcore_peek
+         over a device-served window would report the stale cart[] array
+         instead of what is really there, making a memory view fiction. The
+         contract is that it arrives with commit=0. MAME does the same.
+         adamcore_poke stops short of ops->write, so a memory edit cannot
+         switch a bank. ops->reset is power-on only.
+  [x] 3. cart_fill extracted from cart_load (folded into commit 2; both are
+         additive with no behaviour change, so nothing is lost for bisect).
+  [x] 4. CV memory accuracy, landed alone as planned.
+  [x] 5. PSG refactor: psg.c owns the queue/timeline/resync/mix, sn76489.c is
+         a pure chip, ay8910.c is new and inert (have_ay is always 0 here).
+  [x] 6. SGM ports $50-$53 and the $7F switch.
+  [x] 7. PROVENANCE.md, README, adamcore-sources.cmake, cli -sgm.
 
-Hardware facts to settle from the SGM schematic and the GI datasheet -- NOT
-from MAME/openMSX/blueMSX/ColEm, which would break the clean-room posture:
-  * which range $53 bit 0 gates, and what owns $6000-$63FF when both the
-    console 1K and the 24K are present  <- most likely to break exactly one game
-  * whether the expansion connector carries /RESET (assumed yes)
-  * whether $50-$53 are fully decoded or mirror across $40-$5F
-  * whether $7F bit 0 does anything on an SGM, and whether $7F is readable
-  * the AY volume law (2 dB vs 3 dB per step) and the envelope/volume mapping
+  VERIFIED, and not on "it compiles":
+
+  * cart_ops_test (new, needs no ROMs, never skips): exactly one committed
+    read per Z80 bus access across LD A,(nn), LD A,(HL), LD r,(IX+d), LDIR,
+    CPIR, OUTI, POP, an M1 fetch from cart space, and the read-modify-write
+    cases -- INC (HL) and RES b,(IY+d) at 1r+1w, EX (SP),HL at 2r+2w, which
+    is what silicon does too. peek/peek_block over the whole 32K window
+    produce only commit=0 reads and no writes; poke produces nothing;
+    ops->reset fires once at install and survives both console reset modes.
+    The z80.c audit that predicted this held: every memory read in the
+    interpreter funnels through one rd() at src/z80.c:53.
+
+  * sgm_test (new): the stock console's 1K at $6000-$7FFF mirrored four
+    times, open bus below, and $73B9 aliasing onto $63B9 -- the aliasing the
+    FujiNet cartridge firmware is built around. Then the ports: $53 opening
+    and closing the 24K, $7F swapping RAM over the BIOS, and a sweep of ALL
+    256 values of $7F asserting the cartridge window survives every one
+    (letting $7F reach mem_ctrl would have unmapped the cartridge for any
+    value whose bits 2-3 are not both set). AY register round trip and
+    masking through $50/$51/$52. ADAM in game mode explicitly unchanged.
+
+  * psg_test (new): GOLDEN_SUM, a checksum of the rendered output for a fixed
+    program driving the PSG through real OUT instructions, captured BEFORE
+    the refactor. It still matches sample for sample, which is the proof the
+    extraction was exact. It also caught a real bug: AY fixed volume 0 must
+    be true silence, not envelope level 1, or every SGM-fitted machine
+    carries a constant DC offset. And it confirms the headroom analysis --
+    three AY channels on top of four SN channels reach the rail and produce
+    56 saturated samples with no sign wrap.
+
+  * Real hardware ROMs, not just unit tests: the OS-7 BIOS boot screen and a
+    running cartridge render PIXEL-IDENTICALLY before and after the whole
+    series (adamcore-cli --ppm, 300 frames, cmp). Real software stays inside
+    the real 1K by construction, so correcting the map is invisible to it.
+
+  * From-scratch configure + build + 7/7 ctest on adamcore; the app tree
+    rebuilds against the new pin and still passes its own test.
+
+  STILL OPEN -- hardware facts to settle from the SGM schematic and the GI
+  datasheet, NOT from any emulator (it would break the clean-room posture):
+    * which range $53 bit 0 gates, and what owns $6000-$63FF when both the
+      console 1K and the 24K are present  <- most likely to break one game
+    * whether the expansion connector carries /RESET (assumed yes; the
+      cartridge half, no reset line, is stated in fuji_mailbox.h)
+    * whether $50-$53 are fully decoded or mirror across $40-$5F (currently
+      open bus outside $50-$53, the conservative answer)
+    * whether $7F bit 0 does anything on an SGM, and whether $7F is readable
+      (currently reads $FF on a ColecoVision)
+    * the AY volume law: 1.5 dB per envelope step is assumed, giving
+      amp[n] = peak * 10^(-1.5*(31-n)/20)
+
+  NOT YET PUSHED: the work is on a branch in the local adamcore checkout.
+  cmake/Dependencies.cmake still pins 2fd4ff058 (pre-M1); bump it once the
+  branch is pushed, and drop -DADAMCORE_SRC from the build line.
 
 
 Then

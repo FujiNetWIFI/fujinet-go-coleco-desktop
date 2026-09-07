@@ -36,41 +36,14 @@ if(NOT EXISTS "${FUJI_GEN}/fuji_mailbox.h")
     "should have produced them; re-run with -DFUJI_RESTAGE=ON.")
 endif()
 
-# adamcore's socket helpers (net.h): POSIX sockets everywhere, Winsock on
-# Windows. Both backends come from adamcore itself.
-if(WIN32)
-  set(ADAMCORE_NET_SRC "${ADAMCORE_GEN}/src/net_win32.c")
-else()
-  set(ADAMCORE_NET_SRC "${ADAMCORE_GEN}/src/net_posix.c")
-endif()
-
 # The staged adamcore translation units.
 #
-# Hand-listed for now, which is a known trap: every new upstream file (the
-# planned psg.c and ay8910.c among them) silently breaks the link here until
-# this list is edited, and fujinet-go-adam-desktop has exactly the same
-# hand-list. Once adamcore ships an adamcore-sources.cmake, include() that
-# instead and delete this block.
-set(COLECO_ADAMCORE_SOURCES
-  ${ADAMCORE_GEN}/src/z80.c
-  ${ADAMCORE_GEN}/src/tms9928a.c
-  ${ADAMCORE_GEN}/src/sn76489.c
-  ${ADAMCORE_GEN}/src/machine.c
-  ${ADAMCORE_GEN}/src/cart.c
-  ${ADAMCORE_GEN}/src/adamnet.c
-  ${ADAMCORE_GEN}/src/boip.c
-  ${ADAMCORE_NET_SRC}
-  ${ADAMCORE_GEN}/src/palette.c
-  ${ADAMCORE_GEN}/src/debug.c
-)
-foreach(_s IN LISTS COLECO_ADAMCORE_SOURCES)
-  if(NOT EXISTS "${_s}")
-    message(FATAL_ERROR
-      "Staged adamcore is missing ${_s} -- pin drift? Re-stage with "
-      "-DADAMCORE_RESTAGE=ON, or update COLECO_ADAMCORE_SOURCES in "
-      "core/CMakeLists.txt if upstream added or renamed a file.")
-  endif()
-endforeach()
+# adamcore ships the list itself, so a source added upstream cannot silently
+# break the link here -- which it would if this file enumerated them by hand,
+# as the sibling desktop apps used to. adamcore_sources() also picks the right
+# socket backend for the platform.
+include("${ADAMCORE_GEN}/adamcore-sources.cmake")
+adamcore_sources(COLECO_ADAMCORE_SOURCES ROOT "${ADAMCORE_GEN}")
 
 # The staged protocol sources. fujitcp is the emulator-side transport: the
 # staged .c is POSIX sockets, so a Windows build compiles the committed
@@ -91,12 +64,16 @@ set(COLECO_CORE_SOURCES ${COLECO_ADAMCORE_SOURCES} ${COLECO_FUJI_SOURCES})
 # The cart device needs adamcore's cartridge vtable, which lands upstream as
 # part of M1. Until the pin carries it the core still builds -- a plain
 # ColecoVision with no FujiNet -- rather than failing the configure.
-if(COLECO_ADAMCORE_HAS_CART_OPS AND EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/coleco/fujinet_cart.c")
+if(NOT COLECO_ADAMCORE_HAS_CART_OPS)
+  set(COLECO_HAVE_CART OFF)
+  message(STATUS "coleco_core: FujiNet cart device not built -- the pinned "
+                 "adamcore has no adamcore_cart_ops")
+elseif(NOT EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/coleco/fujinet_cart.c")
+  set(COLECO_HAVE_CART OFF)
+  message(STATUS "coleco_core: FujiNet cart device not written yet (M2)")
+else()
   list(APPEND COLECO_CORE_SOURCES coleco/fujinet_cart.c)
   set(COLECO_HAVE_CART ON)
-else()
-  set(COLECO_HAVE_CART OFF)
-  message(STATUS "coleco_core: FujiNet cart device not built (needs adamcore_cart_ops)")
 endif()
 
 add_library(coleco_core STATIC ${COLECO_CORE_SOURCES})
