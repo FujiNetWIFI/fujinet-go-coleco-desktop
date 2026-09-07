@@ -161,9 +161,16 @@ regression gate on z80.c -- which none of this modified.
     * the AY volume law: 1.5 dB per envelope step is assumed, giving
       amp[n] = peak * 10^(-1.5*(31-n)/20)
 
-  NOT YET PUSHED: the work is on a branch in the local adamcore checkout.
-  cmake/Dependencies.cmake still pins 2fd4ff058 (pre-M1); bump it once the
-  branch is pushed, and drop -DADAMCORE_SRC from the build line.
+  MERGED AND PINNED: tschak909/adamcore#1 landed on main (fccc280ef) and
+  cmake/Dependencies.cmake pins it. -DADAMCORE_SRC is no longer needed for a
+  normal build; it remains the tandem-development override.
+
+  CLONE-AND-BUILD VERIFIED, which is the promise PORTING.md 1.3 makes and the
+  one that could not hold until the merge: a fresh `git clone` with no
+  third_party, no submodule init and no SRC overrides fetched BOTH
+  dependencies at their pins, built the core, both frontends and every test,
+  and passed 15/15 -- with the five ROM-dependent tests skipping, since a
+  clone has no BIOS, which is exactly what CI and a new contributor see.
 
 
 Done (this pass) -- M2: the mailbox cartridge device
