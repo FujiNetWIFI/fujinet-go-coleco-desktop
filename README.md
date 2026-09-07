@@ -17,7 +17,7 @@ there is marked done on "it compiles".
 | **Emulator** | [adamcore](https://github.com/tschak909/adamcore), clean-room GPLv3. Z80 validated against Tom Harte's SingleStepTests and ZEXDOC/ZEXALL, TMS9928A VDP, SN76489, and the Opcode Super Game Module — which reaches **TEST COMPLETED!** on Óscar Toledo G.'s own `super_game_module_test.rom`. |
 | **FujiNet** | The cartridge device compiles the RP2040 firmware's own protocol sources verbatim and dials a real `fujinet-pc`, built in-process as `libfujinet`. Verified on the wire: `dev=70 cmd=F4 seq=1 → err=0 reply=06 rxlen=256 "SD"`. |
 | **Frontends** | GNOME (GTK4/libadwaita), KDE (Qt6 Widgets), macOS (AppKit), Windows (Win32/GDI) — each with the display, a two-controller keypad window, and a full Z80 + VDP debugger. |
-| **Packaging** | Per-frontend DEB/RPM/TGZ, two Flatpaks, a Windows zip and a macOS bundle, all through GitHub Actions. |
+| **Packaging** | Per-frontend DEB/RPM/TGZ, two Flatpaks, a Windows zip and NSIS installer, and a macOS bundle (signed and notarised when the credentials are configured), all through GitHub Actions. |
 
 ## What it is
 
@@ -120,6 +120,56 @@ Every claim above was checked by running the thing, not by compiling it:
 - **Flatpak** — builds in a sandbox with no network, so anything the manifest
   does not declare is simply absent. It is the strictest test of the
   clone-and-build promise here.
+
+## Cutting a release
+
+Pushing a `v*` tag builds every platform and, only if all of it passes,
+publishes what it produced as release assets:
+
+| Asset | Contents |
+|---|---|
+| `fujinet-go-coleco-gnome-<version>-Linux.{deb,rpm,tar.gz}` | the GNOME frontend, packaged with CPack |
+| `fujinet-go-coleco-kde-<version>-Linux.{deb,rpm,tar.gz}` | the KDE frontend, packaged with CPack |
+| `fujinet-go-coleco-<version>-windows.zip` | the exe, `fujinet.dll`, and the `fujinet/` runtime tree |
+| `fujinet-go-coleco-<version>-windows-setup.exe` | NSIS installer, per-user, no admin rights |
+| `fujinet-go-coleco-<version>-macos.zip` | the `.app` bundle, FujiNet inside |
+| `online.fujinet.go.coleco.{gnome,kde}.flatpak` | single-file bundles: `flatpak install ./…flatpak` |
+
+The version is declared in the tree, not derived from the tag, so a
+downloaded build's About box can never disagree with the download it came
+from — `check-version` compares the two and stops if they differ. Both
+metainfo files template their `<release version="…">` from
+`@PROJECT_VERSION@`, so unlike the sibling ports they cannot drift; what
+`check-version` enforces there is that they are *still templates*. The
+release date and notes still need a human.
+
+To release 0.2.0: set `project(… VERSION 0.2.0 …)` in `CMakeLists.txt`, add
+a `<release>` entry with its date to both `frontends/*/data/*.metainfo.xml.in`,
+commit, then `git tag -a v0.2.0 && git push origin v0.2.0`.
+
+The release is created as a **draft**, so the notes can be edited before it
+goes out.
+
+Two things about this workflow are worth knowing before you trust a green
+push build, both learned by tagging 0.1.0 and watching it fail:
+
+- It is the **only** job that looks inside the macOS bundle or at the
+  Windows import table. `macos.yml` and `windows.yml` can be green while the
+  shipped `.app` cannot find `libfujinet.dylib` and the shipped `.exe` needs
+  a DLL that only exists inside an MSYS2 shell.
+- The Windows release build is **native MSYS2/UCRT64**, not the mingw-w64
+  cross-compile that `windows.yml` runs. It uses no toolchain file, so
+  anything set in `cmake/toolchains/mingw-w64.cmake` does not apply to it —
+  which is why the static-runtime link options live on the targets instead.
+
+### Signing the macOS build
+
+Unsigned bundles are produced when the secrets are absent, and the build
+still works — macOS just shows the usual unidentified-developer prompt. Set
+`MACOS_CERTIFICATE`, `MACOS_CERTIFICATE_PASSWORD`, `MACOS_SIGN_IDENTITY`,
+`MACOS_NOTARY_KEY`, `MACOS_NOTARY_KEY_ID` and `MACOS_NOTARY_ISSUER` to have
+the workflow sign, notarise and staple instead.
+
 
 ## Licence
 

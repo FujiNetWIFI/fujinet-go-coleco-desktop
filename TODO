@@ -766,6 +766,67 @@ did what they exist to do.
   macOS runs 10/10 tests (the ROM-dependent ones skipping, as everywhere).
 
 
+Done (this pass) -- the first release, and what tagging it caught
+----------------------------------------------------------------
+
+  Tagged v0.1.0. check-version, both Linux package sets and both flatpaks
+  went green on the first try; macos-package and windows-package failed.
+  All three causes share one shape: the push CI and the release build were
+  testing different things, so no amount of green before the tag could have
+  found them. Worth recording as a family lesson.
+
+  [x] macOS: the bundle had the wrong NAME and the runtime in the wrong
+      PLACE. frontends/macos/CMakeLists.txt never set OUTPUT_NAME, so CMake
+      produced fujinet-go-coleco-macos.app while release.yml looks for
+      "FujiNet Go ColecoVision.app". The name was the failure that showed;
+      the layout was the worse bug hiding behind it. The POST_BUILD put
+      libfujinet.dylib in Contents/Frameworks and the assets in
+      Contents/Resources/fujinet -- the layout a Mac app would normally use
+      -- but core/src/paths.c's resolve_lib_dir() probes exe_dir(), which is
+      Contents/MacOS, and then takes the asset tree from that same directory
+      or its "fujinet" subdir. That bundle would have built, signed,
+      notarised and stapled without complaint and then come up with
+      "libfujinet not found" on a user's Mac. Both now match astrocade,
+      whose path layer resolves the same way.
+
+      Note that macos.yml never looks inside the bundle, which is why it
+      stayed green throughout. The release job's self-containment check is
+      the only thing in the project that reads that layout.
+
+  [x] Windows: libwinpthread-1.dll was leaking into the exe. The
+      -static -static-libgcc -static-libstdc++ lived in
+      cmake/toolchains/mingw-w64.cmake as CMAKE_EXE_LINKER_FLAGS_INIT, which
+      covers the cross-compile ONLY; the native MSYS2/UCRT64 build that
+      actually ships the release uses no toolchain file and so got none of
+      it. The desk-side cross build stayed green the whole time while the
+      shipped .exe would not have started outside an MSYS2 shell. Moved onto
+      the target with target_link_options, where the rest of the family puts
+      it, and onto the thread-starting test targets for the reason
+      adam-desktop gives: a test that needs a DLL from an MSYS2 shell is not
+      a test you can run on a bare Windows box or under wine.
+
+      Verified rather than assumed: cross-built boot_smoke against a copy of
+      the toolchain with the static line stripped -- standing in for the
+      native MSYS2 build -- and objdump -p shows libwinpthread-1.dll with the
+      fix disabled and a clean import table with it enabled.
+
+  [x] Windows: the NSIS installer had no script. release.yml already
+      installed mingw-w64-ucrt-x86_64-nsis and invoked makensis with all four
+      -D defines against build-aux/windows/installer.nsi -- a file that did
+      not exist. Ported from astrocade's, renamed: same per-user install into
+      %LOCALAPPDATA%\Programs, no UAC prompt, built from the same staged
+      folder that becomes the portable zip so the two artifacts are the same
+      bits packaged twice. The uninstaller deliberately leaves
+      %APPDATA%\fujinet-go-coleco behind, which here also means the imported
+      OS7 BIOS the user had to supply and this project cannot ship.
+
+  The general lesson, and the one worth carrying to the next port: a release
+  workflow is not the push workflow with an upload step bolted on. It is the
+  first thing that reads the bundle layout, the import table and the
+  installer, and every one of those was wrong here while all four push
+  workflows were green.
+
+
 Remaining
 ---------
 
