@@ -15,7 +15,17 @@
 #include <string.h>
 #include <sys/stat.h>
 #include <time.h>
+#ifdef _WIN32
+#include <direct.h>
+#include <process.h>
+/* MSVCRT spells these with a leading underscore. */
+#define access _access
+#define getpid _getpid
+#define R_OK 4
+#define W_OK 2
+#else
 #include <unistd.h>
+#endif
 
 #include "colecosession.h"
 

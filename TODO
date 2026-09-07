@@ -539,6 +539,48 @@ Done (this pass) -- M8 (part): CI, and the Windows build made real
   STILL OPEN in M8: flatpak.yml and release.yml.
 
 
-Then
-----
-  M9  macOS + Windows frontends, packaging, release
+Done (this pass) -- M9 (part): the Windows frontend
+---------------------------------------------------
+
+  [x] frontends/windows -- Win32 + GDI, no toolkit. Menu bar, StretchDIBits
+      display with the same 4:3/square and smooth/nearest choices as the
+      other two, file dialogs, drag-and-drop, and the controller panel.
+  [x] DwmFlush() on a present thread is this platform's frame clock. There is
+      no GdkFrameClock here and a plain timer would beat against the panel;
+      the thread does nothing but wait for the compositor and hand the tick
+      to the session. If the DWM is off it falls through immediately and the
+      wall-clock pacing takes over, which is why notify_vsync is advisory.
+  [x] WM_ACTIVATE releases every held key. Windows eats the key-up when focus
+      leaves, so without it the machine believes whatever was held is still
+      down -- alt-tab away mid-jump, come back to a character walking into a
+      wall.
+  [x] The panel captures the mouse on press and releases on button-up
+      wherever that lands, so dragging off a button cannot strand a key held.
+  [x] key_forward.h is the Win32 half of the same one-table rule the Qt
+      frontend follows: map into the session's keysym table rather than grow
+      a second vocabulary.
+  [x] The manifest is generated from PROJECT_VERSION (comctl32 v6 for themed
+      controls, per-monitor DPI so a nearest-neighbour blit is not resampled
+      twice).
+
+  VERIFIED, on an actual Windows binary:
+
+  * The whole thing cross-compiles with mingw-w64, warning clean, after
+    cross-building SDL3 for the target.
+  * SELF-CONTAINED, checked the way PORTING.md 8.2 insists -- objdump -p on
+    the import table, not ldd, which resolves against the build machine's
+    PATH and lies. Only Windows system DLLs: no libwinpthread, no SDL, no
+    libgcc.
+  * IT RUNS UNDER WINE: a native Win32 window with the menu bar, booting the
+    CONFIG client. "fujinet: cannot connect to 127.0.0.1:11502 (WSA 10061)"
+    in the log is fujitcp_win32.c's own error path, so the Winsock transport
+    is live rather than merely compiled.
+  * ALL 8 TESTS PASS under Wine on the Windows build -- including
+    session_test, media_test and debug_test, which exercise the path layer,
+    file I/O and the debugger there. Four test files needed portability
+    shims (_mkdir/_access/_getpid) to get that far; they are worth having,
+    because those tests are the only thing that will run on the Windows CI
+    runner.
+
+  STILL OPEN in M9: the macOS (AppKit) frontend, flatpak manifests, the
+  release workflow and packaging.

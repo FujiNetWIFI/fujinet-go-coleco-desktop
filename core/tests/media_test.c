@@ -15,7 +15,18 @@
 #include <string.h>
 #include <time.h>
 #include <sys/stat.h>
+#ifdef _WIN32
+#include <direct.h>
+#include <process.h>
+/* MSVCRT's mkdir takes no mode, and these spell with a leading underscore. */
+#define mkdir(p, m) _mkdir(p)
+#define access _access
+#define getpid _getpid
+#define R_OK 4
+#define W_OK 2
+#else
 #include <unistd.h>
+#endif
 
 #include "colecosession.h"
 
