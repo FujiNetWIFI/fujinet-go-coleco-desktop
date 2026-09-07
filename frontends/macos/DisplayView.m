@@ -18,6 +18,11 @@
 
 #import <CoreVideo/CoreVideo.h>
 
+/* mach_timebase_info and its data type. CoreVideo hands out host time in
+ * mach_absolute_time units, which are NOT nanoseconds on every machine --
+ * the ratio is what this converts by. */
+#include <mach/mach_time.h>
+
 #include <stdlib.h>
 #include <string.h>
 

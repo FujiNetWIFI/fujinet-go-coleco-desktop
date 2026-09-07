@@ -28,8 +28,11 @@ static ColecoKeypadWindow *g_singleton;
 static colecosession *g_session;
 static coleco_input_state g_keys;
 
+/* NOT named `target`: NSControl already has a `target` property -- the object
+ * an action is sent to -- and shadowing it with an int silently breaks the
+ * control's own machinery. `padTarget` is the binding-table index. */
 @interface PadButton : NSButton
-@property (nonatomic) int target;
+@property (nonatomic) int padTarget;
 @property (nonatomic, copy) NSString *face;
 @end
 
@@ -38,15 +41,15 @@ static coleco_input_state g_keys;
 {
     (void)e;
     if (g_mapState == -1) {
-        g_mapState = self.target;
+        g_mapState = self.padTarget;
         [[NSNotificationCenter defaultCenter] postNotificationName:@"ColecoPadRefresh"
                                                             object:nil];
         return;
     }
     if (g_mapState >= 0) return;
-    if (self.target >= COLECO_TARGET_SYSACT(0)) return;  /* fires on release */
-    colecosession_press(g_session, self.target / COLECO_ACT_PER_PORT,
-                        self.target % COLECO_ACT_PER_PORT, 1);
+    if (self.padTarget >= COLECO_TARGET_SYSACT(0)) return;  /* fires on release */
+    colecosession_press(g_session, self.padTarget / COLECO_ACT_PER_PORT,
+                        self.padTarget % COLECO_ACT_PER_PORT, 1);
     [self highlight:YES];
 }
 
@@ -55,15 +58,15 @@ static coleco_input_state g_keys;
     (void)e;
     [self highlight:NO];
     if (g_mapState != -2) return;
-    if (self.target >= COLECO_TARGET_SYSACT(0)) {
+    if (self.padTarget >= COLECO_TARGET_SYSACT(0)) {
         /* System actions fire on release, like a real button: pressing and
          * dragging off must not reset the console. */
         colecosession_sysaction(g_session,
-                                self.target - COLECO_TARGET_SYSACT(0));
+                                self.padTarget - COLECO_TARGET_SYSACT(0));
         return;
     }
-    colecosession_press(g_session, self.target / COLECO_ACT_PER_PORT,
-                        self.target % COLECO_ACT_PER_PORT, 0);
+    colecosession_press(g_session, self.padTarget / COLECO_ACT_PER_PORT,
+                        self.padTarget % COLECO_ACT_PER_PORT, 0);
 }
 @end
 
@@ -89,7 +92,7 @@ static const int kOrder[12] = { 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 0, 11 };
     PadButton *b = [[PadButton alloc] initWithFrame:frame];
     [b setTitle:face];
     [b setBezelStyle:NSBezelStyleRounded];
-    b.target = target;
+    b.padTarget = target;
     b.face = face;
     /* Not focusable: clicking a pad button must not steal the key window's
      * first responder, and tabbing through thirty-eight buttons is nobody's
@@ -237,7 +240,7 @@ static const int kOrder[12] = { 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 0, 11 };
 
     for (PadButton *b in _buttons) {
         if (g_mapState != -2) {
-            const char *k = coleco_binding_key_name(b.target);
+            const char *k = coleco_binding_key_name(b.padTarget);
             [b setTitle:(*k ? [NSString stringWithUTF8String:k] : @"—")];
         } else {
             [b setTitle:b.face];
