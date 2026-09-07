@@ -140,10 +140,19 @@ static gboolean refresh(gpointer data)
     if (!g_window || !gtk_widget_get_visible(g_window))
         return G_SOURCE_CONTINUE;
 
+    /* Two different questions, deliberately. The BUTTON follows the request,
+     * so clicking Pause changes it immediately rather than a frame later.
+     * The STATE label follows the machine, so it reads "stopping..." during
+     * the window between asking and the emulator thread actually parking --
+     * which is also the window in which register reads would be a moving
+     * target. */
     gtk_label_set_text(GTK_LABEL(g_state),
-                       colecodebug_is_paused(g_dbg) ? "PAUSED" : "running");
+                       colecodebug_is_paused(g_dbg) ? "PAUSED"
+                       : colecodebug_pause_requested(g_dbg) ? "stopping..."
+                       : "running");
     gtk_button_set_label(GTK_BUTTON(g_pause_btn),
-                         colecodebug_is_paused(g_dbg) ? "Continue" : "Pause");
+                         colecodebug_pause_requested(g_dbg) ? "Continue"
+                                                            : "Pause");
     render_regs();
     render_disasm();
     render_mem();
@@ -156,7 +165,7 @@ static gboolean refresh(gpointer data)
 static void on_pause(GtkButton *b, gpointer d)
 {
     (void)b; (void)d;
-    if (colecodebug_is_paused(g_dbg)) colecodebug_resume(g_dbg);
+    if (colecodebug_pause_requested(g_dbg)) colecodebug_resume(g_dbg);
     else colecodebug_pause(g_dbg);
     refresh(NULL);
 }
@@ -212,7 +221,7 @@ static gboolean on_close(GtkWindow *w, gpointer d)
     (void)d;
     /* Let the machine go when the window closes: leaving it paused behind a
      * closed debugger looks exactly like a hung emulator. */
-    if (colecodebug_is_paused(g_dbg)) colecodebug_resume(g_dbg);
+    if (colecodebug_pause_requested(g_dbg)) colecodebug_resume(g_dbg);
     gtk_widget_set_visible(GTK_WIDGET(w), FALSE);
     return TRUE;
 }
@@ -334,7 +343,7 @@ void coleco_debugger_window_toggle(GtkWindow *parent, colecosession *session)
     if (!g_window) build_window(parent);
 
     if (gtk_widget_get_visible(g_window)) {
-        if (colecodebug_is_paused(g_dbg)) colecodebug_resume(g_dbg);
+        if (colecodebug_pause_requested(g_dbg)) colecodebug_resume(g_dbg);
         gtk_widget_set_visible(g_window, FALSE);
     } else {
         gtk_window_present(GTK_WINDOW(g_window));

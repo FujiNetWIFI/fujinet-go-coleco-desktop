@@ -37,7 +37,14 @@ typedef enum {
 /* ---- execution control --------------------------------------------------- */
 void colecodebug_pause(colecodebug *d);   /* halts at the next instruction */
 void colecodebug_resume(colecodebug *d);
+/* True once the machine has actually STOPPED, not merely been asked to.
+ * colecodebug_pause() returns as soon as the request is recorded and the
+ * emulator thread may still be mid-frame, so a caller that reads registers
+ * on the strength of the request gets a moving target. Poll this. */
 int  colecodebug_is_paused(colecodebug *d);
+/* Whether a pause has been requested, for a UI that wants its button to
+ * change the moment it is clicked rather than when the machine catches up. */
+int  colecodebug_pause_requested(colecodebug *d);
 void colecodebug_step_into(colecodebug *d);           /* while paused */
 void colecodebug_step_over(colecodebug *d);           /* while paused */
 void colecodebug_step_out(colecodebug *d);            /* while paused */

@@ -37,7 +37,8 @@ struct colecodebug {
     pthread_mutex_t mtx;
     pthread_cond_t cv; /* wakes the parked emulator thread */
 
-    int paused;        /* target run state */
+    int paused;        /* target run state -- the REQUEST */
+    int at_break;      /* the emulator thread is really stopped in the hook */
     int pause_notify;  /* fire COLECODBG_STOP_PAUSE when the park happens */
     int pending_step;  /* instructions to execute while paused */
 
@@ -208,7 +209,15 @@ int colecodebug_host_frame(void)
                 continue; /* re-evaluate: the callback may have resumed */
             }
             coleco_host_set_audio_mute(1);
+            /* The emulator thread is now genuinely stopped, as opposed to
+             * merely having been asked to stop. is_paused reports THIS, not
+             * the request: a caller that pauses and immediately reads
+             * registers must not get them from a machine still finishing its
+             * frame. */
+            d->at_break = 1;
+            pthread_cond_broadcast(&d->cv);
             pthread_cond_wait(&d->cv, &d->mtx);
+            d->at_break = 0;
             continue;
         }
 
@@ -313,7 +322,28 @@ void colecodebug_resume(colecodebug *d)
     pthread_mutex_unlock(&d->mtx);
 }
 
+/* Reports whether the machine has actually STOPPED, not whether a pause has
+ * been requested. The distinction matters: colecodebug_pause() returns as
+ * soon as the request is recorded, and the emulator thread may still be
+ * mid-frame. A frontend that read registers on the strength of the request
+ * would get a moving target -- which is exactly the bug debug_test caught,
+ * intermittently, on about one run in three.
+ *
+ * While the machine is stopped but not yet at the break (the window between
+ * request and hook), this returns 0 -- "not stopped yet" -- which is the
+ * honest answer and the one that makes a poll-until-paused loop correct. */
 int colecodebug_is_paused(colecodebug *d)
+{
+    int p;
+    pthread_mutex_lock(&d->mtx);
+    p = d->paused && d->at_break;
+    pthread_mutex_unlock(&d->mtx);
+    return p;
+}
+
+/* Has a pause been REQUESTED? For a UI that wants its button to change the
+ * moment it is clicked rather than when the machine catches up. */
+int colecodebug_pause_requested(colecodebug *d)
 {
     int p;
     pthread_mutex_lock(&d->mtx);
