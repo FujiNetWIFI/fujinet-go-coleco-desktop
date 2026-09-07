@@ -402,10 +402,25 @@ Done (this pass) -- M5 (part): the controller keypad window and bindings
       not fit on a gamepad, and guessing a subset would make some games work
       and others fail for reasons the user cannot see. The panel covers it.
 
-  NOT VERIFIED: the gamepad path has no hardware to test against on this
-  machine (no /dev/input/js*). It starts cleanly with no pad present, and the
-  word it builds goes through the encoder input_test pins, but button and
-  axis mapping is unconfirmed against a real controller.
+  VERIFIED AGAINST REAL HARDWARE (a USB 2-axis 8-button pad, which SDL
+  identifies as an iBuffalo SNES Controller). 547 state changes over one
+  session, and every controller word the pad produced matches the value
+  input_test pins for that control exactly:
+
+      UP 7E7F   DOWN 7B7F   LEFT 777F   RIGHT 7D7F
+      FIRE-L 3F7F   FIRE-R 7F3F
+
+  Three things that only real hardware could establish:
+    * All four DIAGONALS work (UP+LEFT 767F, UP+RIGHT 7C7F, DOWN+LEFT 737F,
+      DOWN+RIGHT 797F). This pad reports its d-pad as two AXES, not as hat
+      buttons, so the diagonals prove the STICK_THRESHOLD path -- which no
+      unit test could reach, and which differs per controller.
+    * Fire and direction TOGETHER (397F = DOWN+RIGHT+FIRE-L, 373F =
+      LEFT+FIRE-L+FIRE-R). That is the case that breaks if only the changed
+      port is pushed, or if the two fire bits are masked wrongly -- they live
+      in different bytes of the word.
+    * The pad is opened and assigned to port 1 by connection order with no
+      configuration.
 
   STILL OPEN in M5: binding gamepad buttons as well as keys (the binding
   table has room for it; only keys are wired).
