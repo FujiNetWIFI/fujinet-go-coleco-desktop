@@ -1,0 +1,156 @@
+FujiNet Go ColecoVision (desktop) -- what is done and what is next
+==================================================================
+
+The port follows fujinet-go-adam-desktop/PORTING.md, whose milestone order
+(section 12) this file adapts. The derivation is unusual in the family: there
+is no fujinet-go-coleco Android sibling to take the target-specific half from,
+so instead
+
+    coleco-desktop = adam-desktop (shape, adamcore, Z80/VDP debugger)
+                   + astrocade-desktop (mailbox cart, staged protocol,
+                                        ROM-less compliance)
+                   + intv-desktop (the keypad window, bindings.c)
+
+ColecoVision is the only cart-slot platform in fujinet-firmware/pico with a
+finished, corpus-verified mailbox protocol (M7 soak: 192/192 cartridges pushed,
+swapped and byte-compared) and no app to run it -- until now it was reachable
+only by grafting a device into a MAME tree by hand.
+
+Ports, fixed for this target (never 9995, which pico/coleco's MAME dev harness
+and a standalone fujinet-pc-rs232 already use):
+  BoIP (FujiBus over SLIP/TCP; FujiNet listens, the cart dials in):  11502
+  Web UI:                                                            11503
+
+Two structural decisions, both settled before any code was written:
+  * The ColecoVision-side emulator work (the adamcore_cart_ops vtable, the
+    Opcode Super Game Module, the corrected stock-console memory map) lands
+    UPSTREAM in adamcore, not as a patch script here. Same maintainer, and the
+    SGM benefits fujinet-go-adam-desktop too.
+  * colmap.c stays OUT of adamcore. It derives its mapper behaviour from MAME
+    and says so in its own comments; adamcore is strictly clean-room. It is
+    staged into this repo alongside fujimail/fujibus/fujitcp instead, so the
+    emulated cartridge and the real RP2040 one are identical by construction.
+
+
+Done (this pass) -- M0
+----------------------
+
+  [x] Root CMakeLists: version single-source (project VERSION 0.1.0),
+      FRONTEND switch with the found-or-skipped add_frontend(), GNUInstallDirs
+      at the TOP level (PORTING.md 10.1), CPack per frontend, the icon install
+      loop, and the no_embedded_roms ctest wiring for WITH_COLECO_ROMS=OFF
+      (the default here -- unlike the ADAM app this repo does not redistribute
+      a BIOS).
+  [x] .gitignore with !build-aux/ negated (PORTING.md 10.2) and both staged
+      trees ignored.
+  [x] cmake/Dependencies.cmake -- coleco_provide_dependency(), transposed from
+      astrocade's. adamcore pinned 2fd4ff058; fujinet-firmware pinned
+      844eb6f24 on branch colecovision-bringup (pico/coleco is NOT on master).
+  [x] cmake/StageAdamcore.cmake -- stages include/ + src/ into
+      core/adamcore-generated. Keys the .source-info marker on the source
+      commit AND a hash of the staging file itself, so editing the stage
+      re-stages. Detects whether the pin carries adamcore_cart_ops yet and
+      says so plainly instead of letting core/ fail on an unknown type.
+  [x] cmake/StageFujiProto.cmake -- stages the ten protocol files
+      pico/coleco/emu/apply.sh grafts into MAME, unpatched, into
+      core/coleco/fuji-generated. Errors at configure time naming the
+      colecovision-bringup branch if the pin has no fuji_mailbox.h.
+      Deliberately does NOT reproduce apply.sh's fujins.h symbol prefixing:
+      that exists because two FujiNet carts in one MAME binary collide on
+      fujimail_paint(), and only one is ever linked here. Comment says so.
+  [x] core/CMakeLists.txt -- coleco_core static lib from both staged trees.
+      The cart device is conditional on adamcore_cart_ops so the tree builds
+      today (a plain ColecoVision, no FujiNet) rather than failing configure.
+      The hand-listed adamcore source list carries a note: it is the same trap
+      fujinet-go-adam-desktop has, and goes away when adamcore ships an
+      adamcore-sources.cmake (M1 step 7).
+  [x] tools/icons/make-icons.py + rendered hicolor set, .icns and app.ico.
+      Background #8C9720 -- the complement of the ADAM app's #8D84E5: hue
+      65.6 deg (exactly 180 opposite), same saturation, and HSL lightness
+      chosen so RELATIVE LUMINANCE matches ADAM's 0.278. That last step is the
+      point: all six siblings composite byte-identical foreground artwork, and
+      the literal complement #DCE584 is 2.6x more luminous, dropping contrast
+      from 3.20:1 to 1.35:1 and washing the wordmark out.
+
+  VERIFIED on this machine:
+    cmake -B build -DFRONTEND=none -DADAMCORE_SRC=~/Workspace/adamcore \
+                                   -DFUJINET_SRC=~/Workspace/fujinet-firmware
+    cmake --build build && ctest --test-dir build
+  -> configures, stages both trees, builds, 1/1 test passes. The test
+     (core/tests/no_sdl_link_test.c) is not a stub: it runs the staged
+     fujibus_selftest() (the firmware's own known-good wire vectors), plans a
+     flat 32K image through the staged colmap, and creates + runs a frame of +
+     destroys a ColecoVision. `nm -u` shows zero SDL symbols in
+     libcoleco_core.a and ldd on the test binary shows only libm/libc.
+
+
+Next -- M1: the adamcore work (upstream)
+----------------------------------------
+
+Seven commits, in this order, so a regression bisects cleanly. harte and
+zexdoc bind their own mem_read and are untouched throughout, so they stay the
+regression gate on z80.c -- which none of this modifies.
+
+  [ ] 1. commit split: mem_read_at(c, a, commit); mem_read -> 1,
+         machine_mem_read -> 0. No behaviour change yet.
+         WHY IT MATTERS: machine_mem_read (machine.c:340) is currently just
+         mem_read, and adamcore_peek/peek_block reach it from the debugger.
+         adam-desktop's debugger.c peeks 4 bytes PER INSTRUCTION while
+         tracing, and the whole memory view per refresh -- all of which would
+         arm REGSEL, append TX bytes, and hit FN_HOT_SWAP at $FDFE. Opening
+         the debugger would corrupt the protocol.
+  [ ] 2. adamcore_cart_ops vtable + hooks at machine.c:63 (read) and :82
+         (write). ops->reset is POWER-ON ONLY -- machine_reset must stay
+         untouched, because the cartridge edge carries no reset line and
+         FN_R_ACKSEQ has to survive a console reset (the client derives its
+         next SEQ from the cart's value, never a local counter).
+         adamcore_poke must NOT reach ops->write, or the debugger's memory
+         editor fires mapper bank switches.
+  [ ] 3. adamcore_cart_insert + cart_fill extraction. NOT the mailbox swap
+         path (that is a memcpy inside this repo's device); this is for
+         drag-and-drop, the CLI and tests.
+  [ ] 4. CV memory accuracy. THIS IS A BEHAVIOUR CHANGE, so it lands alone:
+         adamcore today gives a stock ColecoVision a full readable/writable
+         24K at $2000-$7FFF, which is SGM-with-RAM-always-on, not a bare
+         console. Real hardware: 1K at $6000-$7FFF mirrored x4, open bus
+         below. The mirror is not cosmetic -- it is exactly why the cartridge
+         firmware is two-tier (A15 is not on the connector, so a RAM access at
+         $7C00 aliases onto a cart read of $FC00). Test corpus: cartridges
+         that work today and rely on the mirror.
+  [ ] 5. PSG refactor, no AY yet: psg.c takes the queue, timeline, snap and
+         mix; sn76489.c becomes a pure chip. Two independent renderers WOULD
+         drift -- sn_render's resync jumps sample_pos by up to
+         MAX_LEAD-TARGET_LEAD. Gate on a golden capture from step 4.
+  [ ] 6. AY-3-8910 + ports $50-$53 + cfg.sgm. Queue {when,target,reg,val} not
+         raw bytes (a dropped entry must not desynchronise the address latch).
+         $52 reads an emu-thread register mirror, not the audio thread's
+         synthesis state. Do NOT rescale amp_table -- add a saturating store
+         instead; with the SGM absent the output must stay bit-identical.
+         Gate $7F on cfg.start_machine == CV, never on game_mode (which any
+         mode-1 reset sets, including an ADAM user pressing game reset).
+  [ ] 7. PROVENANCE.md (GI AY-3-8910 datasheet, Opcode SGM docs, the
+         expansion-connector pinout), README.md:24 ("Out of scope (v1): SGM"
+         no longer holds), adamcore-sources.cmake, cli -sgm flag.
+
+Hardware facts to settle from the SGM schematic and the GI datasheet -- NOT
+from MAME/openMSX/blueMSX/ColEm, which would break the clean-room posture:
+  * which range $53 bit 0 gates, and what owns $6000-$63FF when both the
+    console 1K and the 24K are present  <- most likely to break exactly one game
+  * whether the expansion connector carries /RESET (assumed yes)
+  * whether $50-$53 are fully decoded or mirror across $40-$5F
+  * whether $7F bit 0 does anything on an SGM, and whether $7F is readable
+  * the AY volume law (2 dB vs 3 dB per step) and the envelope/volume mapping
+
+
+Then
+----
+
+  M2  StageFujiProto + core/coleco/fujinet_cart.c (transposed from
+      pico/coleco/emu/fujinet.cpp) + the test_fujimail cases ported
+  M3  session layer + GNOME frontend, WITH_FUJINET=OFF
+  M4  FujiNet end-to-end -- the long pole
+  M5  keypad window + bindings.c + settings + media import + gamepad + audio
+  M6  debugger engine + Z80/VDP/SGM/cart panes
+  M7  KDE frontend
+  M8  CI: linux -> macOS -> Windows -> flatpak
+  M9  macOS + Windows frontends, packaging, release

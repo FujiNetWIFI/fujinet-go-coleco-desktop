@@ -1,0 +1,33 @@
+# Build trees. The negation matters: build-aux/ is SOURCE (flatpak manifests,
+# the NSIS installer script), and "build*/" swallows it -- new manifests then
+# never show up as untracked and quietly go missing from CI.
+build*/
+!build-aux/
+
+# Staged sources: produced by cmake/StageAdamcore.cmake and
+# cmake/StageFujiProto.cmake from the pinned dependencies. Never edit these;
+# edit the source checkout and re-stage with -DADAMCORE_RESTAGE=ON /
+# -DFUJI_RESTAGE=ON.
+core/adamcore-generated/
+core/coleco/fuji-generated/
+
+# FujiNet runtime build tree (tools/fujinet/build-fujinet-desktop.sh).
+tools/fujinet/work/
+
+# The ColecoVision BIOS is copyrighted Coleco firmware and is not
+# redistributed here (COMPLIANCE.md). A local copy for -DWITH_COLECO_ROMS=ON
+# development lives in tools/roms/ and must never be committed.
+tools/roms/*.rom
+tools/roms/*.bin
+tools/roms/*.col
+
+# Cartridge images.
+*.rom
+*.col
+!core/tests/**/*.rom
+
+.cache/
+compile_commands.json
+.flatpak-builder/
+__pycache__/
+*.pyc
