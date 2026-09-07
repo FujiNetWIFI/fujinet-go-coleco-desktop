@@ -59,3 +59,17 @@ add_executable(gamepad_probe gamepad_probe.c)
 target_link_libraries(gamepad_probe coleco_session)
 
 endif() # TARGET coleco_session
+
+# On Windows the tests that start threads otherwise need libwinpthread-1.dll
+# beside them, which only happens to be true inside an MSYS2 shell. Link the
+# runtime statically (as the frontend does) so the test exes run anywhere --
+# on a bare Windows box, or under wine when cross-compiling.
+if(WIN32)
+  # cart_test is conditional on the ROMs being available, hence the guard.
+  foreach(_t no_sdl_link_test cart_test boot_smoke input_test session_test
+             bindings_test media_test debug_test gamepad_probe)
+    if(TARGET ${_t})
+      target_link_options(${_t} PRIVATE -static -static-libgcc -static-libstdc++)
+    endif()
+  endforeach()
+endif()

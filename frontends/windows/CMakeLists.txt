@@ -34,4 +34,14 @@ target_link_libraries(fujinet-go-coleco-windows PRIVATE
   dwmapi comdlg32 shell32 comctl32)
 target_compile_options(fujinet-go-coleco-windows PRIVATE -Wall -Wextra)
 
+# Bundle the MinGW runtime statically so the .exe has no loose DLL deps.
+# This has to live on the TARGET, not in cmake/toolchains/mingw-w64.cmake:
+# that toolchain file sets CMAKE_EXE_LINKER_FLAGS_INIT and so only covers
+# the cross-compile, leaving the native MSYS2/UCRT64 build that actually
+# ships the release importing libwinpthread-1.dll. The cross build stayed
+# green while the release build shipped a .exe that would not start off an
+# MSYS2 shell, so the desk-side check disagreed with the shipped artifact.
+target_link_options(fujinet-go-coleco-windows PRIVATE
+  -static -static-libgcc -static-libstdc++)
+
 install(TARGETS fujinet-go-coleco-windows RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})

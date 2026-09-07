@@ -33,8 +33,13 @@ set_source_files_properties("${COLECO_ICNS}" PROPERTIES
   MACOSX_PACKAGE_LOCATION "Resources")
 
 set_target_properties(fujinet-go-coleco-macos PROPERTIES
+  # The bundle is named for the product, not the target: this is what makes
+  # it "FujiNet Go ColecoVision.app" rather than the target name, and the
+  # packaging workflow refers to it by that path. It also has to agree with
+  # MACOSX_BUNDLE_EXECUTABLE_NAME below, which names the binary inside.
+  OUTPUT_NAME "FujiNet Go ColecoVision"
   MACOSX_BUNDLE_INFO_PLIST "${CMAKE_CURRENT_SOURCE_DIR}/Info.plist.in"
-  MACOSX_BUNDLE_EXECUTABLE_NAME "fujinet-go-coleco-macos"
+  MACOSX_BUNDLE_EXECUTABLE_NAME "FujiNet Go ColecoVision"
   MACOSX_BUNDLE_ICON_FILE "fujinet-go-coleco.icns"
   MACOSX_BUNDLE_BUNDLE_NAME "FujiNet Go ColecoVision"
   MACOSX_BUNDLE_GUI_IDENTIFIER "online.fujinet.go.coleco.macos"
@@ -56,24 +61,27 @@ target_compile_options(fujinet-go-coleco-macos PRIVATE -Wall -Wextra
 
 install(TARGETS fujinet-go-coleco-macos BUNDLE DESTINATION .)
 
-# Pack the FujiNet runtime into the bundle so the .app is self-contained: the
-# dylib into Contents/Frameworks and the pristine runtime tree into
-# Contents/Resources/fujinet, which is what the session's path layer looks
-# for when it is handed a bundle. add_dependencies rather than a bare
+# Pack the FujiNet runtime into the bundle so the .app is self-contained.
+# Everything goes BESIDE THE EXECUTABLE in Contents/MacOS, not into the
+# Frameworks/Resources layout a Mac app would normally use, because that is
+# where core/src/paths.c actually looks: resolve_lib_dir() probes exe_dir()
+# for libfujinet.dylib and then takes the asset tree from that same directory
+# or its "fujinet" subdir. A Frameworks/Resources layout builds and signs
+# perfectly and then fails at run time with "libfujinet not found", which is
+# the kind of break no compiler catches. add_dependencies rather than a bare
 # POST_BUILD so the ordering against the runtime target is real.
 if(TARGET fujinet-runtime)
   add_dependencies(fujinet-go-coleco-macos fujinet-runtime)
-  set(_bundle "$<TARGET_BUNDLE_DIR:fujinet-go-coleco-macos>")
+  set(_exedir "$<TARGET_FILE_DIR:fujinet-go-coleco-macos>")
   add_custom_command(TARGET fujinet-go-coleco-macos POST_BUILD
-    COMMAND ${CMAKE_COMMAND} -E make_directory "${_bundle}/Contents/Frameworks"
     COMMAND ${CMAKE_COMMAND} -E copy_if_different
-            "${FUJINET_LIB}" "${_bundle}/Contents/Frameworks/"
+            "${FUJINET_LIB}" "${_exedir}/"
     COMMAND ${CMAKE_COMMAND} -E copy_directory
-            "${FUJINET_OUT}/data" "${_bundle}/Contents/Resources/fujinet/data"
+            "${FUJINET_OUT}/data" "${_exedir}/fujinet/data"
     COMMAND ${CMAKE_COMMAND} -E copy_directory
-            "${FUJINET_OUT}/SD" "${_bundle}/Contents/Resources/fujinet/SD"
+            "${FUJINET_OUT}/SD" "${_exedir}/fujinet/SD"
     COMMAND ${CMAKE_COMMAND} -E copy_if_different
-            "${FUJINET_OUT}/fnconfig.ini" "${_bundle}/Contents/Resources/fujinet/"
+            "${FUJINET_OUT}/fnconfig.ini" "${_exedir}/fujinet/"
     COMMENT "Packing the FujiNet runtime into the bundle"
     VERBATIM)
 endif()
