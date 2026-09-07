@@ -140,9 +140,24 @@ function(coleco_provide_dependency)
         "or unpack ${DEP_URL} (commit ${DEP_COMMIT}) into ${DEP_PATH}.")
     endif()
 
-    if(EXISTS "${CMAKE_SOURCE_DIR}/.git")
-      # 2b. Submodule checkout. --filter=blob:none keeps the fetch to the
-      # history the build needs; fujinet-firmware is a large repository.
+    # 2b. Submodule checkout -- but ONLY when this path is actually a
+    # registered submodule. Attempting it otherwise prints two lines of
+    # "error: pathspec ... did not match any file(s) known to git" per
+    # dependency on every fresh configure, and then silently falls through to
+    # the clone below. The build was fine; the output said otherwise, which
+    # is its own kind of bug.
+    set(_is_submodule FALSE)
+    if(EXISTS "${CMAKE_SOURCE_DIR}/.gitmodules")
+      file(READ "${CMAKE_SOURCE_DIR}/.gitmodules" _gitmodules)
+      string(FIND "${_gitmodules}" "path = ${DEP_PATH}" _found)
+      if(NOT _found EQUAL -1)
+        set(_is_submodule TRUE)
+      endif()
+    endif()
+
+    if(_is_submodule AND EXISTS "${CMAKE_SOURCE_DIR}/.git")
+      # --filter=blob:none keeps the fetch to the history the build needs;
+      # fujinet-firmware is a large repository.
       message(STATUS "${DEP_NAME}: fetching submodule ${DEP_PATH}")
       execute_process(
         COMMAND ${GIT_EXECUTABLE} submodule update --init --filter=blob:none
