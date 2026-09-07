@@ -135,15 +135,24 @@ if(COLECO_HAVE_CART)
     PROPERTIES COMPILE_OPTIONS "-Wall;-Wextra")
 endif()
 
-add_subdirectory(tests)
-
 # ---- coleco_session: the frontend contract ---------------------------------
 #
 # A separate target from coleco_core so the core stays SDL-free: audio_sdl.c
 # and gamepad_sdl.c live here, and no_sdl_link_test links coleco_core alone to
 # keep that honest. Were SDL added to the core archive, every consumer of it
 # would pick up an SDL3 runtime dependency whether or not it plays audio.
-find_package(SDL3 CONFIG REQUIRED)
+# Found-or-skipped, exactly as the frontends are. coleco_core is SDL-free by
+# construction, so `-DFRONTEND=none` on a machine (or a cross-toolchain) with
+# no SDL3 must still configure and build the emulator and its tests. Making
+# this REQUIRED would abort the whole configure for a dependency only the
+# session layer has -- which is what the mingw-w64 cross build ran into.
+find_package(SDL3 CONFIG QUIET)
+if(NOT SDL3_FOUND)
+  message(STATUS "coleco_session: SDL3 not found -- building the core and its "
+                 "tests only (no audio, no gamepads, no frontends)")
+  add_subdirectory(tests)
+  return()
+endif()
 
 # ---- the embedded BIOS -----------------------------------------------------
 # What WITH_COLECO_ROMS changes is only whether this table has anything in it.
@@ -202,3 +211,5 @@ target_link_libraries(coleco_session PUBLIC coleco_core SDL3::SDL3)
 if(NOT WIN32)
   target_link_libraries(coleco_session PUBLIC dl)
 endif()
+
+add_subdirectory(tests)

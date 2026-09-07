@@ -490,7 +490,48 @@ Done (this pass) -- M7: the KDE frontend
   two frontends, two toolkits, one session contract, no #ifdefs.
 
 
+Done (this pass) -- M8 (part): CI, and the Windows build made real
+------------------------------------------------------------------
+
+  [x] core/coleco/fujitcp_win32.c -- the Winsock twin of the staged POSIX
+      fujitcp.c, compiled INSTEAD of it on Windows against the same staged
+      header, so the staged tree stays a verbatim copy of the firmware's own
+      and `git diff` against fujinet-firmware stays empty. It was referenced
+      by core/CMakeLists.txt from M0 and did not exist; any Windows build
+      would have failed at link.
+      A line-for-line transposition, not a rewrite: the behaviour that
+      matters was paid for elsewhere -- walking every getaddrinfo result
+      (localhost resolves to ::1 first, fujinet-pc binds 127.0.0.1 only),
+      RX_RAW_MAX at 1088 for a SLIP-encoded 512-byte DBC push, and a push
+      frame consumed mid-transaction RESTARTING the deadline rather than
+      counting it down. Winsock's differences are mechanical: SOCKET is
+      unsigned, no MSG_DONTWAIT (a zero-timeout select before each byte does
+      the same job), no MSG_NOSIGNAL (Windows never raises SIGPIPE),
+      WSAStartup first.
+  [x] cmake/toolchains/mingw-w64.cmake -- the desk-side Windows check.
+  [x] coleco_session is now found-or-skipped on SDL3, like the frontends.
+      coleco_core is SDL-free by construction, so -DFRONTEND=none must still
+      configure without SDL; making it REQUIRED aborted the whole configure
+      for a dependency only the session layer has, which is exactly what the
+      cross build hit.
+  [x] .github/workflows/{linux,macos,windows}.yml.
+
+  VERIFIED, and better than "it configures":
+
+  * The ENTIRE core cross-compiles for Windows with -Wall -Wextra clean, and
+    its tests RUN UNDER WINE: cart_test (the whole mailbox protocol, all
+    stray-read defences included), no_sdl_link_test, and boot_smoke at 54 fps
+    in 1006 ms. That last one is the point -- clock_nanosleep(TIMER_ABSTIME)
+    is a no-op under mingw/Wine, and without host.c's relative-nanosleep
+    fallback the emulator would have free-run at thousands of fps. The trap
+    is caught at the desk rather than on a push.
+  * The linux CI configuration reproduced locally, with the BIOS moved out of
+    the tree so the checkout looks like CI's: 15/15 pass and the five
+    ROM-dependent tests SKIP (ctest 77) rather than fail.
+
+  STILL OPEN in M8: flatpak.yml and release.yml.
+
+
 Then
 ----
-  M8  CI: linux -> macOS -> Windows -> flatpak
   M9  macOS + Windows frontends, packaging, release
