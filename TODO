@@ -460,8 +460,37 @@ Done (this pass) -- M6: the debugger
   what they need; the panes are not written.
 
 
+Done (this pass) -- M7: the KDE frontend
+----------------------------------------
+
+  [x] frontends/kde -- plain Qt6 Widgets, deliberately NOT KDE Frameworks: it
+      picks up Breeze through the platform theme anyway, and staying
+      framework-free keeps the frontend usable outside a KDE session.
+      MainWindow (menu bar, drag-and-drop, media import, BIOS import, status
+      bar), DisplayWidget, KeypadWindow (the Qt twin of the GNOME panel, same
+      layout, same held-not-pulsed semantics via a PadButton that overrides
+      mousePress/Release rather than using "clicked"), KeyForward.
+  [x] KeyForward.cpp is the only place a keysym translation exists in the
+      whole project. The session's table is written in X11/xkb keysyms
+      because a GDK keyval already IS one, so GNOME needs no translation;
+      Qt is the frontend that maps, and doing it here rather than teaching
+      the table a second vocabulary is what lets ONE tested table serve
+      every frontend.
+  [x] enable_language(CXX) must come BEFORE find_package(Qt6), not after:
+      Qt's config runs check_cxx_source_compiles (WrapAtomic among others),
+      which fails outright with no C++ compiler enabled. Cost a configure
+      failure to discover; the comment says so.
+
+  VERIFIED: RAN AND PHOTOGRAPHED on live Wayland. The Qt window boots the
+  CONFIG client through the same core, lists the same host slots, and its
+  status bar reads "FujiNet connected". The Qt controller panel opens with
+  the same two-controller layout as the GNOME one.
+
+  This is the milestone that proves the core is genuinely toolkit-agnostic:
+  two frontends, two toolkits, one session contract, no #ifdefs.
+
+
 Then
 ----
-  M7  KDE frontend
   M8  CI: linux -> macOS -> Windows -> flatpak
   M9  macOS + Windows frontends, packaging, release
