@@ -53,6 +53,11 @@ struct colecosession {
      * table; kept so a reset/reload need not re-read it */
     uint8_t *bios;            /* COLECO_BIOS_SIZE bytes, or NULL */
 
+    /* The on-screen keypad's own held-key set, kept separate from the
+     * frontend's keyboard state so a button held with the mouse and a key
+     * held on the keyboard cannot clear each other. */
+    coleco_input_state panel_input;
+
     void *audio;              /* audio_sdl.c state, NULL until started */
     int running;
 };
@@ -87,6 +92,9 @@ uint8_t *roms_load_bios(struct colecosession *s);
 int roms_any_available(const struct colecosession *s);
 /* Materialise any embedded BIOS into the ROM directory on first run. */
 void roms_provision_embedded(struct colecosession *s);
+
+/* bindings.c -- the reverse lookup the key handler uses. */
+int coleco_binding_target_for_key(uint32_t keysym);
 
 /* audio_sdl.c */
 int  audio_start(struct colecosession *s);

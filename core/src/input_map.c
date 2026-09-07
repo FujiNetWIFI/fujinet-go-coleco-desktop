@@ -11,19 +11,10 @@
  * The ColecoVision has no keyboard. Everything is two hand controllers:
  * four directions, two fire buttons and a 12-key keypad each.
  *
- *   port 1   arrows           directions
- *            Left Ctrl        left fire
- *            Left Alt         right fire
- *            0-9 * #          keypad (top-row digits and the numpad)
- *
- *   port 2   W A S D          directions
- *            Left Shift       left fire
- *            Tab              right fire
- *            (keypad via the on-screen keypad window or a gamepad)
- *
- * Ctrl+digit is deliberately NOT the keypad here, unlike the ADAM app: that
- * app needs its digits for the ADAM's own keyboard, and this machine has no
- * keyboard to compete with.
+ * Which key drives which control is bindings.c's business, not this file's
+ * -- every control is remappable. What stays here is the part that has to be
+ * exactly right and is worth testing on its own: how a held-key set becomes
+ * the active-low controller word the machine reads.
  *
  * Copyright (C) 2026 Thomas Cherryhomes
  * SPDX-License-Identifier: GPL-3.0-or-later
@@ -33,20 +24,8 @@
 
 #include "colecosession.h"
 
-/* X11 keysyms, spelled out so this file needs no X headers. */
-#define XK_Tab        0xFF09
-#define XK_Escape     0xFF1B
-#define XK_Left       0xFF51
-#define XK_Up         0xFF52
-#define XK_Right      0xFF53
-#define XK_Down       0xFF54
-#define XK_Shift_L    0xFFE1
-#define XK_Control_L  0xFFE3
-#define XK_Alt_L      0xFFE9
-#define XK_KP_0       0xFFB0
-#define XK_KP_9       0xFFB9
-#define XK_KP_Mul     0xFFAA
-#define XK_KP_Div     0xFFAF
+/* bindings.c */
+int coleco_binding_target_for_key(uint32_t keysym);
 
 /* Bit order matches the joystick-strobe byte adamcore reads. */
 #define DIR_UP    0x01
@@ -83,45 +62,49 @@ static void bit_set(uint8_t *field, uint8_t bit, int down)
     else      *field = (uint8_t)(*field & ~bit);
 }
 
-int coleco_input_key(coleco_input_state *st, uint32_t keysym, int down)
+/* Apply one control, named the way the binding table names it. Shared by the
+ * key handler and by the on-screen keypad window, which presses controls
+ * directly rather than synthesising keystrokes. */
+void coleco_input_apply(coleco_input_state *st, int port, int act, int down)
 {
-    /* ---- port 1: arrows, Ctrl/Alt, digits ---- */
-    switch (keysym) {
-    case XK_Up:    bit_set(&st->dir[0], DIR_UP, down); return 1;
-    case XK_Down:  bit_set(&st->dir[0], DIR_DOWN, down); return 1;
-    case XK_Left:  bit_set(&st->dir[0], DIR_LEFT, down); return 1;
-    case XK_Right: bit_set(&st->dir[0], DIR_RIGHT, down); return 1;
-    case XK_Control_L: bit_set(&st->fire[0], FIRE_L, down); return 1;
-    case XK_Alt_L:     bit_set(&st->fire[0], FIRE_R, down); return 1;
+    if (port < 0 || port > 1) return;
 
-    /* ---- port 2: WASD, Shift/Tab ---- */
-    case 'w': case 'W': bit_set(&st->dir[1], DIR_UP, down); return 1;
-    case 's': case 'S': bit_set(&st->dir[1], DIR_DOWN, down); return 1;
-    case 'a': case 'A': bit_set(&st->dir[1], DIR_LEFT, down); return 1;
-    case 'd': case 'D': bit_set(&st->dir[1], DIR_RIGHT, down); return 1;
-    case XK_Shift_L: bit_set(&st->fire[1], FIRE_L, down); return 1;
-    case XK_Tab:     bit_set(&st->fire[1], FIRE_R, down); return 1;
+    if (act >= COLECO_ACT_KEYPAD && act < COLECO_ACT_KEYPAD + COLECO_KEYPAD_KEYS) {
+        keypad_set(st, port, act - COLECO_ACT_KEYPAD, down);
+        return;
+    }
+    switch (act) {
+    case COLECO_ACT_UP:     bit_set(&st->dir[port], DIR_UP, down); break;
+    case COLECO_ACT_DOWN:   bit_set(&st->dir[port], DIR_DOWN, down); break;
+    case COLECO_ACT_LEFT:   bit_set(&st->dir[port], DIR_LEFT, down); break;
+    case COLECO_ACT_RIGHT:  bit_set(&st->dir[port], DIR_RIGHT, down); break;
+    case COLECO_ACT_FIRE_L: bit_set(&st->fire[port], FIRE_L, down); break;
+    case COLECO_ACT_FIRE_R: bit_set(&st->fire[port], FIRE_R, down); break;
     default: break;
     }
+}
 
-    /* ---- port 1 keypad: the top-row digits and the numeric keypad ---- */
-    if (keysym >= '0' && keysym <= '9') {
-        keypad_set(st, 0, (int)(keysym - '0'), down);
-        return 1;
-    }
-    if (keysym >= XK_KP_0 && keysym <= XK_KP_9) {
-        keypad_set(st, 0, (int)(keysym - XK_KP_0), down);
-        return 1;
-    }
-    if (keysym == '*' || keysym == XK_KP_Mul) {
-        keypad_set(st, 0, 10, down);
-        return 1;
-    }
-    if (keysym == '#' || keysym == XK_KP_Div) {
-        keypad_set(st, 0, 11, down);
-        return 1;
-    }
-    return 0;
+/* Returns the system action a key is bound to, or -1. The frontend handles
+ * those itself -- they are not controller state. */
+int coleco_input_key_sysaction(uint32_t keysym)
+{
+    int t = coleco_binding_target_for_key(keysym);
+    if (t < 0 || t < COLECO_TARGET_SYSACT(0)) return -1;
+    return t - COLECO_TARGET_SYSACT(0);
+}
+
+int coleco_input_key(coleco_input_state *st, uint32_t keysym, int down)
+{
+    int t = coleco_binding_target_for_key(keysym);
+    if (t < 0) return 0;
+    /* A system action is bound but is not controller state; the frontend
+     * asks for it separately with coleco_input_key_sysaction. Report the key
+     * as consumed either way, so it never falls through to the machine. */
+    if (t >= COLECO_TARGET_SYSACT(0)) return 1;
+
+    coleco_input_apply(st, t / COLECO_ACT_PER_PORT, t % COLECO_ACT_PER_PORT,
+                       down);
+    return 1;
 }
 
 /* Active-low, idle 0x7F7F. The high byte is what the machine reads under the

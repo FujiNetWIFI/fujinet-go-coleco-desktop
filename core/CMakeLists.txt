@@ -60,7 +60,12 @@ else()
 endif()
 
 # Our own core layer: the paced emulator thread and the frame slot.
-set(COLECO_HOST_SOURCES coleco/host.c src/input_map.c)
+# host.c alone: the paced thread and the frame slot are machine, not
+# session. input_map.c used to live here too, but it now resolves keys
+# through the settings-backed binding table, which is squarely a session
+# concern -- so it moved to coleco_session with bindings.c rather than
+# dragging the settings store down into the core.
+set(COLECO_HOST_SOURCES coleco/host.c)
 
 set(COLECO_CORE_SOURCES ${COLECO_ADAMCORE_SOURCES} ${COLECO_FUJI_SOURCES}
                         ${COLECO_HOST_SOURCES})
@@ -160,6 +165,8 @@ add_library(coleco_session STATIC
   src/settings.c
   src/paths.c
   src/roms.c
+  src/bindings.c
+  src/input_map.c
   src/audio_sdl.c
   src/fujinet_runtime.c
   "${ROMS_EMBEDDED_C}"

@@ -23,10 +23,15 @@ set_tests_properties(boot_smoke PROPERTIES SKIP_RETURN_CODE 77)
 
 # The key table, pinned to exact controller words.
 add_executable(input_test input_test.c)
-target_link_libraries(input_test coleco_core)
+target_link_libraries(input_test coleco_session)
 add_test(NAME input COMMAND input_test)
 
 # The frontend contract, against a real temporary XDG tree.
 add_executable(session_test session_test.c)
 target_link_libraries(session_test coleco_session)
 add_test(NAME session COMMAND session_test "${CMAKE_SOURCE_DIR}/tools/roms")
+
+# The remappable binding table and the panel's direct press path.
+add_executable(bindings_test bindings_test.c)
+target_link_libraries(bindings_test coleco_session)
+add_test(NAME bindings COMMAND bindings_test)

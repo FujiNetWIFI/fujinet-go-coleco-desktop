@@ -15,6 +15,7 @@
 #include "window.h"
 
 #include "display.h"
+#include "keypad/keypad_window.h"
 
 struct _ColecoWindow {
     AdwApplicationWindow parent_instance;
@@ -53,8 +54,20 @@ static gboolean on_key_pressed(GtkEventControllerKey *ctrl, guint keyval,
                                gpointer user_data)
 {
     ColecoWindow *self = user_data;
+    int sysact;
     (void)ctrl; (void)keycode; (void)state;
 
+    /* F9 belongs to the window, not the machine, and is deliberately not
+     * bindable: it is how you reach the panel that does the binding. */
+    if (keyval == GDK_KEY_F9) {
+        coleco_keypad_window_toggle(GTK_WINDOW(self), self->session);
+        return TRUE;
+    }
+    sysact = coleco_input_key_sysaction(keyval);
+    if (sysact >= 0) {
+        colecosession_sysaction(self->session, sysact);
+        return TRUE;
+    }
     if (coleco_input_key(&self->input, keyval, 1)) {
         push_input(self);
         return TRUE;
@@ -69,6 +82,8 @@ static gboolean on_key_released(GtkEventControllerKey *ctrl, guint keyval,
     ColecoWindow *self = user_data;
     (void)ctrl; (void)keycode; (void)state;
 
+    if (keyval == GDK_KEY_F9) return TRUE;
+    if (coleco_input_key_sysaction(keyval) >= 0) return TRUE;
     if (coleco_input_key(&self->input, keyval, 0)) {
         push_input(self);
         return TRUE;
@@ -108,6 +123,22 @@ static gboolean update_status(gpointer user_data)
 }
 
 /* ---- actions -------------------------------------------------------------- */
+
+static void action_keypad(GSimpleAction *a, GVariant *p, gpointer user_data)
+{
+    ColecoWindow *self = user_data;
+    (void)a; (void)p;
+    coleco_keypad_window_toggle(GTK_WINDOW(self), self->session);
+}
+
+static void action_reset_config(GSimpleAction *a, GVariant *p,
+                                gpointer user_data)
+{
+    ColecoWindow *self = user_data;
+    (void)a; (void)p;
+    colecosession_reset_to_config(self->session);
+    push_toast(self, "Back to the FujiNet CONFIG client");
+}
 
 static void action_reset(GSimpleAction *a, GVariant *p, gpointer user_data)
 {
@@ -183,6 +214,8 @@ static void action_smooth(GSimpleAction *a, GVariant *p, gpointer user_data)
 
 static const GActionEntry win_actions[] = {
     { "reset", action_reset, NULL, NULL, NULL, { 0 } },
+    { "reset-config", action_reset_config, NULL, NULL, NULL, { 0 } },
+    { "keypad", action_keypad, NULL, NULL, NULL, { 0 } },
     { "import-bios", action_import_bios, NULL, NULL, NULL, { 0 } },
     { "fujinet-config", action_fujinet_config, NULL, NULL, NULL, { 0 } },
     { "tv-aspect", action_aspect, NULL, "true", NULL, { 0 } },
@@ -199,9 +232,11 @@ static GMenu *build_menu(void)
     GMenu *fuji = g_menu_new();
 
     g_menu_append(machine, "_Reset Console", "win.reset");
+    g_menu_append(machine, "Reset to _CONFIG", "win.reset-config");
     g_menu_append(machine, "_Import BIOS...", "win.import-bios");
     g_menu_append_section(menu, NULL, G_MENU_MODEL(machine));
 
+    g_menu_append(view, "_Controllers (F9)", "win.keypad");
     g_menu_append(view, "_TV Aspect (4:3)", "win.tv-aspect");
     g_menu_append(view, "_Smooth Scaling", "win.smooth");
     g_menu_append_section(menu, NULL, G_MENU_MODEL(view));
@@ -299,6 +334,16 @@ GtkWidget *coleco_window_new(AdwApplication *app, colecosession *session)
 
     self->status_id = g_timeout_add_seconds(1, update_status, self);
     update_status(self);
+
+    /* COLECO_OPEN_KEYPAD=1 opens the controller panel at launch, following
+     * the family's <T>_OPEN_DEBUGGER convention. Worth having for the same
+     * reason: it is the way in when the app misbehaves before the menu is
+     * reachable, and the way a headless check can look at the panel. */
+    {
+        const char *env = g_getenv("COLECO_OPEN_KEYPAD");
+        if (env && *env && *env != '0')
+            coleco_keypad_window_toggle(GTK_WINDOW(self), session);
+    }
 
     if (!colecosession_bios_available(session)) {
         push_toast(self, "No ColecoVision BIOS \xe2\x80\x94 use the menu to "

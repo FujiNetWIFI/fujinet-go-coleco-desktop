@@ -321,9 +321,71 @@ Done (this pass) -- M4: FujiNet end-to-end, in-process
   not been driven from this app against a live TNFS host yet.
 
 
+Done (this pass) -- M5 (part): the controller keypad window and bindings
+-----------------------------------------------------------------------
+
+  [x] core/src/bindings.c -- a flat target table (both controllers' 12 keypad
+      keys, 4 directions and 2 fire buttons, then the machine-wide system
+      actions), each holding at most one keysym, persisted to the shared
+      settings store. Written FRESH rather than transposed: astrocade's model
+      is one 24-key console keypad plus a knob, which does not describe two
+      ColecoVision hand controllers at all.
+      Rebinding STEALS -- a key drives exactly one control, because one
+      keystroke doing two things is worse than losing the old binding: the
+      second effect is invisible until it matters.
+      Seeds its defaults LAZILY, so the table is usable with no session
+      behind it. A frontend that forgot to load bindings, or a unit test with
+      no settings store, gets the documented default map rather than silently
+      no input at all.
+      Keysyms are folded before lookup: case (so a binding made with 'w'
+      still fires while Shift is held for something else) and the numeric
+      keypad onto the top row (one binding drives both -- a user who binds
+      "5" means the digit, and a machine whose entire input model is a 12-key
+      keypad having a dead numpad would be perverse).
+  [x] input_map.c reworked to resolve through the table, and MOVED from
+      coleco_core to coleco_session: it now needs the settings-backed
+      bindings, and dragging the settings store down into the SDL-free core
+      to avoid that would have been the wrong trade.
+  [x] colecosession_press / _sysaction / _reset_to_config.
+      reset_to_config is a real feature, not a convenience: after a network
+      boot the cartridge is serving the game, and a plain reset cannot undo
+      that because the cartridge never sees the console's reset line. Only
+      rebuilding the cartridge puts CONFIG back -- on hardware that is a
+      power cycle.
+  [x] frontends/gnome/keypad/keypad_window.c -- both controllers side by
+      side, 3x4 keypad + four-way stick + two fire buttons each, a System row
+      (Reset Console / Reset to CONFIG) and a Map row (Map / Defaults).
+      F9 toggles it; singleton, hidden-not-destroyed so a remap survives
+      closing it; NOT visible at startup (PORTING.md 1.8).
+      Every control uses a raw GtkGestureClick press AND release, never
+      GtkButton's "clicked" -- the emulator samples the controller once per
+      frame, so a value present only for the instant of a click falls between
+      frames and a polling game (which is how essentially every title reads
+      its skill select) never sees it. "cancel" is wired to the same release
+      path, so dragging off a button cannot strand a key held forever.
+      COLECO_OPEN_KEYPAD=1 opens it at launch, following the family's
+      <T>_OPEN_DEBUGGER convention.
+
+  VERIFIED:
+
+  * RAN AND PHOTOGRAPHED on live Wayland: the panel shows Controller 1 and
+    Controller 2 side by side with the 1-9 / * 0 # pad, the direction cross,
+    Fire L/R, the System row and the Map row -- the layout that was agreed
+    before any of it was written.
+  * bindings_test (new), passing first run: labels; the defaults actually
+    driving the machine; rebinding stealing the key from whatever held it,
+    and BOTH halves of the theft persisting across a session restart;
+    Defaults restoring; and the property that matters most for the panel --
+    that it presses the CONTROL, not a key, so an on-screen button keeps
+    working after the key it looks like has been remapped elsewhere. Plus
+    that system actions are not controller state.
+
+  STILL OPEN in M5: media import (drag-and-drop a .col), the SDL gamepad
+  layer, and binding gamepad buttons as well as keys.
+
+
 Then
 ----
-  M5  keypad window + bindings.c + settings + media import + gamepad + audio
   M6  debugger engine + Z80/VDP/SGM/cart panes
   M7  KDE frontend
   M8  CI: linux -> macOS -> Windows -> flatpak

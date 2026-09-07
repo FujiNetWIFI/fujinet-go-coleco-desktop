@@ -38,6 +38,8 @@ colecosession *colecosession_new(const colecosession_paths *paths)
         return NULL;
     }
     settings_init(s);
+    coleco_bindings_load(s);
+    coleco_input_reset(&s->panel_input);
     roms_provision_embedded(s);
 
     snprintf(s->boip_hostport, sizeof s->boip_hostport, "127.0.0.1:%d",
@@ -224,6 +226,44 @@ void colecosession_reset(colecosession *s)
 {
     (void)s;
     coleco_host_reset();
+}
+
+void colecosession_reset_to_config(colecosession *s)
+{
+    colecosession_start_opts o;
+
+    if (!s->running) return;
+    /* A full restart with no cartridge image, so the device serves the
+     * CONFIG client again. A plain reset cannot do this: the cartridge never
+     * sees the console's reset line, which is the whole point of
+     * adamcore_cart_ops' power-on-only reset -- after a network boot the
+     * swapped-in game is what the cartridge is serving, and only rebuilding
+     * the cartridge puts CONFIG back. On hardware this is a power cycle. */
+    colecosession_default_opts(s, &o);
+    o.cart_path = NULL;
+    colecosession_stop(s);
+    if (colecosession_start(s, &o) != 0)
+        fprintf(stderr, "coleco: reset to CONFIG failed: %s\n", s->last_error);
+}
+
+/* The on-screen keypad window presses controls directly rather than
+ * synthesising keystrokes -- a button on screen is a button, and routing it
+ * through the key table would mean it stopped working the moment someone
+ * remapped the key it was pretending to be. */
+void colecosession_press(colecosession *s, int port, int act, int down)
+{
+    coleco_input_apply(&s->panel_input, port, act, down);
+    colecosession_joystick_raw(s, port,
+                               coleco_input_word(&s->panel_input, port));
+}
+
+void colecosession_sysaction(colecosession *s, int sysact)
+{
+    switch (sysact) {
+    case COLECO_SYSACT_RESET: colecosession_reset(s); break;
+    case COLECO_SYSACT_RESET_CONFIG: colecosession_reset_to_config(s); break;
+    default: break;
+    }
 }
 
 /* ---- FujiNet -------------------------------------------------------------- */

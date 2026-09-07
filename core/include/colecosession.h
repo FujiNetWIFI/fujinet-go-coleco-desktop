@@ -145,11 +145,75 @@ typedef struct {
 } coleco_input_state;
 
 void coleco_input_reset(coleco_input_state *st);
+/* Apply one control directly, the way the on-screen keypad window does. */
+void coleco_input_apply(coleco_input_state *st, int port, int act, int down);
+/* The system action a key is bound to, or -1. Frontends handle these
+ * themselves; they are not controller state. */
+int  coleco_input_key_sysaction(uint32_t keysym);
 /* Returns 1 if the keysym is bound to something, 0 if it should be ignored. */
 int  coleco_input_key(coleco_input_state *st, uint32_t keysym, int down);
 uint16_t coleco_input_word(const coleco_input_state *st, int port);
 
 void colecosession_reset(colecosession *s);
+
+/* Restart the machine with a freshly created cartridge, which puts the
+ * FujiNet CONFIG client back on screen after a network boot has swapped a
+ * game in. On real hardware that takes a power cycle -- the cartridge edge
+ * carries no reset line, so the RESET button cannot reach the RP2040, and
+ * the firmware watchdogs back to CONFIG when console power goes away. This
+ * is the emulated equivalent, and it is a different thing from
+ * colecosession_reset(), which the cartridge deliberately does not see. */
+void colecosession_reset_to_config(colecosession *s);
+
+/* ---- remappable bindings --------------------------------------------------
+ * Every control the keypad window shows can be rebound to a different
+ * keyboard key. Targets are a flat index so the window can iterate them and
+ * the settings store can name them.
+ *
+ * The default table is what input_test pins, so the pure mapping stays
+ * testable: bindings start as the defaults and only diverge when a user
+ * remaps something. */
+
+#define COLECO_KEYPAD_KEYS 12   /* 0-9, then * (10) and # (11) */
+
+typedef enum {
+    COLECO_ACT_KEYPAD = 0,      /* + key 0..11 */
+    COLECO_ACT_UP = COLECO_KEYPAD_KEYS,
+    COLECO_ACT_DOWN,
+    COLECO_ACT_LEFT,
+    COLECO_ACT_RIGHT,
+    COLECO_ACT_FIRE_L,
+    COLECO_ACT_FIRE_R,
+    COLECO_ACT_PER_PORT         /* how many actions one controller has */
+} coleco_action;
+
+/* Machine-wide actions, after both ports' controls. */
+typedef enum {
+    COLECO_SYSACT_RESET = 0,
+    COLECO_SYSACT_RESET_CONFIG,
+    COLECO_SYSACT_COUNT
+} coleco_sysaction;
+
+#define COLECO_TARGET_PORT(port, act) ((port) * COLECO_ACT_PER_PORT + (act))
+#define COLECO_TARGET_SYSACT(sa)      (2 * COLECO_ACT_PER_PORT + (sa))
+#define COLECO_TARGET_COUNT           (2 * COLECO_ACT_PER_PORT + COLECO_SYSACT_COUNT)
+
+/* Human-readable, for the keypad window's Map row and for settings keys. */
+const char *coleco_binding_label(int target);
+const char *coleco_binding_key_name(int target);   /* "" when unbound */
+
+/* Load from (or seed) the settings store. Called by colecosession_new. */
+void coleco_bindings_load(colecosession *s);
+/* Bind `target` to `keysym`, stealing it from whatever held it -- one key
+ * cannot drive two controls, and silently ending up with a key that does two
+ * things is worse than losing the old binding. keysym 0 unbinds. */
+void coleco_binding_set(colecosession *s, int target, uint32_t keysym);
+void coleco_bindings_reset_defaults(colecosession *s);
+
+/* The keypad window presses controls directly, bypassing the key table.
+ * `port` 0/1, `act` a coleco_action, `down` press/release. */
+void colecosession_press(colecosession *s, int port, int act, int down);
+void colecosession_sysaction(colecosession *s, int sysact);
 
 /* ---- audio ---------------------------------------------------------------
  * Owned by the session (SDL) when opts.enable_audio was set. A frontend that

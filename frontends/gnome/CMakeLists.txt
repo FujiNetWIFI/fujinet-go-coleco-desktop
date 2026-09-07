@@ -22,6 +22,7 @@ add_executable(fujinet-go-coleco-gnome
   main.c
   window.c
   display.c
+  keypad/keypad_window.c
 )
 target_link_libraries(fujinet-go-coleco-gnome
   PRIVATE coleco_session PkgConfig::GTK4 PkgConfig::ADW)
