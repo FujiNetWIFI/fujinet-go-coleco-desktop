@@ -582,5 +582,30 @@ Done (this pass) -- M9 (part): the Windows frontend
     because those tests are the only thing that will run on the Windows CI
     runner.
 
-  STILL OPEN in M9: the macOS (AppKit) frontend, flatpak manifests, the
-  release workflow and packaging.
+  [x] frontends/macos -- AppKit. Window, menu bar, display, controller
+      panel, media import, drag-and-drop, BIOS import.
+      CVDisplayLink is this platform's frame clock (the equivalent of
+      GdkFrameClock and DwmFlush). Its callback runs on its OWN thread, so it
+      does the two cheap things -- hand over the tick, pull the frame -- and
+      then dispatches to the main queue to redraw. Drawing from the callback
+      thread would be AppKit off the main thread, which is undefined.
+      flagsChanged is handled, not just keyDown/keyUp: modifier keys arrive
+      only through it, and BOTH fire buttons are modifiers in the default
+      bindings, so without it the machine never sees a shot fired from the
+      keyboard.
+      ColecoKeyForward reads digits and letters from charactersIgnoringModifiers
+      rather than the key code, so a French or Dvorak layout binds what the
+      user actually typed.
+      The .icns is added as a SOURCE with MACOSX_PACKAGE_LOCATION AND named in
+      MACOSX_BUNDLE_ICON_FILE -- neither alone is enough, and without both the
+      bundle builds cleanly with NO icon, which nothing else in this project
+      would catch (PORTING.md 4.4).
+
+  NOT COMPILED: there is no Mac here and no way to build Objective-C against
+  Cocoa on this machine. .github/workflows/macos.yml is the first thing that
+  will actually try it, and a failure there is real signal about this code.
+  What WAS checked mechanically: every session and binding symbol the
+  frontend calls is declared in the public headers (so no misremembered name
+  or signature), and every file balances.
+
+  STILL OPEN in M9: flatpak manifests, the release workflow, packaging.

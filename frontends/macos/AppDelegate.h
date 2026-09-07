@@ -1,0 +1,14 @@
+/*
+ * The application delegate: the window, the menu bar, and the session.
+ * SPDX-License-Identifier: GPL-3.0-or-later
+ */
+#pragma once
+
+#import <Cocoa/Cocoa.h>
+
+#include "colecosession.h"
+
+@interface ColecoAppDelegate : NSObject <NSApplicationDelegate>
+- (instancetype)initWithSession:(colecosession *)session
+                       cartPath:(const char *)cartPath;
+@end

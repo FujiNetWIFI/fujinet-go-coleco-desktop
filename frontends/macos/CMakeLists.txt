@@ -1,0 +1,75 @@
+# The macOS frontend: AppKit, no toolkit dependencies beyond the system
+# frameworks.
+#
+# Written on Linux and never compiled on a Mac -- .github/workflows/macos.yml
+# is the first thing that will actually try it, and a failure there is real
+# signal about this code, not necessarily about the workflow.
+
+if(NOT APPLE)
+  message(STATUS "macos frontend: not a macOS build -- skipping")
+  return()
+endif()
+
+enable_language(OBJC)
+
+# The .icns has to be added as a SOURCE with MACOSX_PACKAGE_LOCATION so CMake
+# copies it into the bundle, and MACOSX_BUNDLE_ICON_FILE names it for
+# Info.plist.in's ${MACOSX_BUNDLE_ICON_FILE}. Neither alone is enough, and
+# without both the bundle builds cleanly with no icon at all -- GNOME and KDE
+# find theirs by desktop-entry id and Windows embeds app.ico, so nothing else
+# in this project would have caught it (PORTING.md 4.4).
+set(COLECO_ICNS "${CMAKE_SOURCE_DIR}/data/icons/fujinet-go-coleco.icns")
+
+add_executable(fujinet-go-coleco-macos MACOSX_BUNDLE
+  main.m
+  AppDelegate.m
+  DisplayView.m
+  ColecoKeyForward.m
+  keypad/KeypadWindow.m
+  "${COLECO_ICNS}"
+)
+set_source_files_properties("${COLECO_ICNS}" PROPERTIES
+  MACOSX_PACKAGE_LOCATION "Resources")
+
+set_target_properties(fujinet-go-coleco-macos PROPERTIES
+  MACOSX_BUNDLE_INFO_PLIST "${CMAKE_CURRENT_SOURCE_DIR}/Info.plist.in"
+  MACOSX_BUNDLE_EXECUTABLE_NAME "fujinet-go-coleco-macos"
+  MACOSX_BUNDLE_ICON_FILE "fujinet-go-coleco.icns"
+  MACOSX_BUNDLE_BUNDLE_NAME "FujiNet Go ColecoVision"
+  MACOSX_BUNDLE_GUI_IDENTIFIER "online.fujinet.go.coleco.macos"
+  MACOSX_BUNDLE_BUNDLE_VERSION "${PROJECT_VERSION}"
+  MACOSX_BUNDLE_SHORT_VERSION_STRING "${PROJECT_VERSION}")
+
+target_include_directories(fujinet-go-coleco-macos PRIVATE
+  ${CMAKE_CURRENT_SOURCE_DIR})
+target_link_libraries(fujinet-go-coleco-macos PRIVATE coleco_session
+  "-framework Cocoa"
+  "-framework CoreVideo"    # CVDisplayLink: this platform's frame clock
+  "-framework CoreGraphics"
+  "-framework Carbon")      # kVK_* virtual key codes
+target_compile_options(fujinet-go-coleco-macos PRIVATE -Wall -Wextra
+  -fobjc-arc)
+
+install(TARGETS fujinet-go-coleco-macos BUNDLE DESTINATION .)
+
+# Pack the FujiNet runtime into the bundle so the .app is self-contained: the
+# dylib into Contents/Frameworks and the pristine runtime tree into
+# Contents/Resources/fujinet, which is what the session's path layer looks
+# for when it is handed a bundle. add_dependencies rather than a bare
+# POST_BUILD so the ordering against the runtime target is real.
+if(TARGET fujinet-runtime)
+  add_dependencies(fujinet-go-coleco-macos fujinet-runtime)
+  set(_bundle "$<TARGET_BUNDLE_DIR:fujinet-go-coleco-macos>")
+  add_custom_command(TARGET fujinet-go-coleco-macos POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E make_directory "${_bundle}/Contents/Frameworks"
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "${FUJINET_LIB}" "${_bundle}/Contents/Frameworks/"
+    COMMAND ${CMAKE_COMMAND} -E copy_directory
+            "${FUJINET_OUT}/data" "${_bundle}/Contents/Resources/fujinet/data"
+    COMMAND ${CMAKE_COMMAND} -E copy_directory
+            "${FUJINET_OUT}/SD" "${_bundle}/Contents/Resources/fujinet/SD"
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "${FUJINET_OUT}/fnconfig.ini" "${_bundle}/Contents/Resources/fujinet/"
+    COMMENT "Packing the FujiNet runtime into the bundle"
+    VERBATIM)
+endif()
