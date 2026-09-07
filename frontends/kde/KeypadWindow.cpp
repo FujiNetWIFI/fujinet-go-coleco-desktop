@@ -12,6 +12,7 @@
 #include <QGridLayout>
 #include <QGroupBox>
 #include <QHBoxLayout>
+#include <QFont>
 #include <QLabel>
 #include <QMouseEvent>
 #include <QVBoxLayout>
@@ -54,12 +55,21 @@ static const char *const kKeypadFace[COLECO_KEYPAD_KEYS] = {
 static const int kKeypadOrder[12] = { 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 0, 11 };
 
 KeypadWindow::KeypadWindow(colecosession *session, QWidget *parent)
-    : QWidget(parent, Qt::Window), m_session(session)
+    /* Qt::Dialog, not Qt::Window: a plain window is an ordinary top-level and
+     * a tiling window manager will tile it, which stretches a panel of
+     * fixed-size buttons across half the screen. A dialog is a utility
+     * window -- floated by every WM, kept above its parent, and off the
+     * tiling grid. */
+    : QWidget(parent, Qt::Dialog), m_session(session)
 {
     setWindowTitle(QStringLiteral("Controllers"));
     coleco_input_reset(&m_keys);
 
     auto *root = new QVBoxLayout(this);
+    /* Size to the controls and stay there. Without this the panel is
+     * resizable, and stretching it just pulls the buttons out of shape --
+     * there is nothing here that benefits from more room. */
+    root->setSizeConstraint(QLayout::SetFixedSize);
     auto *ports = new QHBoxLayout;
     ports->addWidget(buildController(0));
     ports->addWidget(buildController(1));
@@ -97,8 +107,20 @@ KeypadWindow::KeypadWindow(colecosession *session, QWidget *parent)
 
 QWidget *KeypadWindow::buildController(int port)
 {
-    auto *box = new QGroupBox(QStringLiteral("Controller %1").arg(port + 1));
+    /* The heading is an explicit centred label rather than the group box's
+     * own title. QGroupBox::setAlignment(Qt::AlignHCenter) is advisory --
+     * several styles, including the one this renders under, draw the title
+     * left regardless -- and a heading that sits over its controls in one
+     * theme and off to the side in another is not a heading. */
+    auto *box = new QGroupBox;
     auto *v = new QVBoxLayout(box);
+
+    auto *title = new QLabel(QStringLiteral("Controller %1").arg(port + 1));
+    title->setAlignment(Qt::AlignHCenter);
+    QFont titleFont = title->font();
+    titleFont.setBold(true);
+    title->setFont(titleFont);
+    v->addWidget(title);
 
     auto add = [&](const QString &face, int act) {
         auto *b = new PadButton(face, COLECO_TARGET_PORT(port, act));
