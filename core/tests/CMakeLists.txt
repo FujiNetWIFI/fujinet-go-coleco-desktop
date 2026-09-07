@@ -35,3 +35,8 @@ add_test(NAME session COMMAND session_test "${CMAKE_SOURCE_DIR}/tools/roms")
 add_executable(bindings_test bindings_test.c)
 target_link_libraries(bindings_test coleco_session)
 add_test(NAME bindings COMMAND bindings_test)
+
+# Where a dropped file goes, and whether a real cartridge runs once there.
+add_executable(media_test media_test.c)
+target_link_libraries(media_test coleco_session)
+add_test(NAME media COMMAND media_test "${CMAKE_SOURCE_DIR}/tools/roms")

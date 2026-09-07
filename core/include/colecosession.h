@@ -241,6 +241,9 @@ int  colecosession_import_bios(colecosession *s, const char *src_path);
  * folder. Returns 0 and writes the destination into dest_out. */
 int  colecosession_import_media(colecosession *s, const char *src_path,
                                 char *dest_out, int dest_sz);
+/* 1 if this path looks like a cartridge, so a frontend can decide whether an
+ * import should also become the running cartridge. */
+int  colecosession_media_is_cartridge(const char *path);
 
 const char *colecosession_config_path(const colecosession *s);
 const char *colecosession_data_path(const colecosession *s);

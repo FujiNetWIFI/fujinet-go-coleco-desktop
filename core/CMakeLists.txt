@@ -167,6 +167,7 @@ add_library(coleco_session STATIC
   src/roms.c
   src/bindings.c
   src/input_map.c
+  src/media.c
   src/audio_sdl.c
   src/fujinet_runtime.c
   "${ROMS_EMBEDDED_C}"

@@ -17,6 +17,8 @@
 #include "display.h"
 #include "keypad/keypad_window.h"
 
+#include <string.h>
+
 struct _ColecoWindow {
     AdwApplicationWindow parent_instance;
 
@@ -124,6 +126,107 @@ static gboolean update_status(gpointer user_data)
 
 /* ---- actions -------------------------------------------------------------- */
 
+/* Import a file and, if it is a cartridge, run it. Restarting is the honest
+ * way to insert one: the cartridge device builds its window from the image
+ * at construction, exactly as the RP2040 does at power-on. */
+static void load_media(ColecoWindow *self, const char *path)
+{
+    char dest[1024];
+    char msg[1200];
+
+    if (colecosession_import_media(self->session, path, dest, sizeof dest) != 0) {
+        push_toast(self, colecosession_last_error(self->session));
+        return;
+    }
+    if (!colecosession_media_is_cartridge(dest)) {
+        g_snprintf(msg, sizeof msg,
+                   "Copied to FujiNet's SD folder \xe2\x80\x94 mount it from "
+                   "the CONFIG client");
+        push_toast(self, msg);
+        return;
+    }
+
+    colecosession_set_str(self->session, "cart_path", dest);
+    colecosession_settings_flush(self->session);
+    {
+        colecosession_start_opts o;
+        colecosession_default_opts(self->session, &o);
+        colecosession_stop(self->session);
+        if (colecosession_start(self->session, &o) != 0) {
+            push_toast(self, colecosession_last_error(self->session));
+            return;
+        }
+    }
+    g_snprintf(msg, sizeof msg, "Running %s", strrchr(dest, '/')
+                                                  ? strrchr(dest, '/') + 1
+                                                  : dest);
+    push_toast(self, msg);
+}
+
+static void on_cart_chosen(GObject *src, GAsyncResult *res, gpointer user_data)
+{
+    ColecoWindow *self = user_data;
+    g_autoptr(GFile) file = gtk_file_dialog_open_finish(GTK_FILE_DIALOG(src),
+                                                        res, NULL);
+    g_autofree char *path = NULL;
+
+    if (!file) return;
+    path = g_file_get_path(file);
+    if (path) load_media(self, path);
+}
+
+static void action_open(GSimpleAction *a, GVariant *p, gpointer user_data)
+{
+    ColecoWindow *self = user_data;
+    GtkFileDialog *dlg = gtk_file_dialog_new();
+    GListStore *filters = g_list_store_new(GTK_TYPE_FILE_FILTER);
+    GtkFileFilter *carts = gtk_file_filter_new();
+    GtkFileFilter *all = gtk_file_filter_new();
+    (void)a; (void)p;
+
+    gtk_file_filter_set_name(carts, "ColecoVision cartridges");
+    gtk_file_filter_add_pattern(carts, "*.rom");
+    gtk_file_filter_add_pattern(carts, "*.col");
+    gtk_file_filter_add_pattern(carts, "*.bin");
+    gtk_file_filter_set_name(all, "All files");
+    gtk_file_filter_add_pattern(all, "*");
+    g_list_store_append(filters, carts);
+    g_list_store_append(filters, all);
+
+    gtk_file_dialog_set_title(dlg, "Open Cartridge");
+    gtk_file_dialog_set_filters(dlg, G_LIST_MODEL(filters));
+    gtk_file_dialog_open(dlg, GTK_WINDOW(self), NULL, on_cart_chosen, self);
+    g_object_unref(carts);
+    g_object_unref(all);
+    g_object_unref(filters);
+    g_object_unref(dlg);
+}
+
+static void action_eject(GSimpleAction *a, GVariant *p, gpointer user_data)
+{
+    ColecoWindow *self = user_data;
+    (void)a; (void)p;
+    colecosession_set_str(self->session, "cart_path", "");
+    colecosession_settings_flush(self->session);
+    colecosession_reset_to_config(self->session);
+    push_toast(self, "Cartridge ejected");
+}
+
+/* Drag-and-drop, on the display where a cartridge visibly goes. */
+static gboolean on_drop(GtkDropTarget *t, const GValue *value, double x,
+                        double y, gpointer user_data)
+{
+    ColecoWindow *self = user_data;
+    g_autofree char *path = NULL;
+    (void)t; (void)x; (void)y;
+
+    if (!G_VALUE_HOLDS(value, G_TYPE_FILE)) return FALSE;
+    path = g_file_get_path(G_FILE(g_value_get_object(value)));
+    if (!path) return FALSE;
+    load_media(self, path);
+    return TRUE;
+}
+
 static void action_keypad(GSimpleAction *a, GVariant *p, gpointer user_data)
 {
     ColecoWindow *self = user_data;
@@ -213,6 +316,8 @@ static void action_smooth(GSimpleAction *a, GVariant *p, gpointer user_data)
 }
 
 static const GActionEntry win_actions[] = {
+    { "open", action_open, NULL, NULL, NULL, { 0 } },
+    { "eject", action_eject, NULL, NULL, NULL, { 0 } },
     { "reset", action_reset, NULL, NULL, NULL, { 0 } },
     { "reset-config", action_reset_config, NULL, NULL, NULL, { 0 } },
     { "keypad", action_keypad, NULL, NULL, NULL, { 0 } },
@@ -231,6 +336,8 @@ static GMenu *build_menu(void)
     GMenu *view = g_menu_new();
     GMenu *fuji = g_menu_new();
 
+    g_menu_append(machine, "_Open Cartridge...", "win.open");
+    g_menu_append(machine, "_Eject Cartridge", "win.eject");
     g_menu_append(machine, "_Reset Console", "win.reset");
     g_menu_append(machine, "Reset to _CONFIG", "win.reset-config");
     g_menu_append(machine, "_Import BIOS...", "win.import-bios");
@@ -306,6 +413,12 @@ GtkWidget *coleco_window_new(AdwApplication *app, colecosession *session)
         colecosession_get_int(session, "tv_aspect", 1) != 0);
     coleco_display_set_smooth(COLECO_DISPLAY(self->display),
         colecosession_get_int(session, "smooth", 0) != 0);
+
+    {
+        GtkDropTarget *drop = gtk_drop_target_new(G_TYPE_FILE, GDK_ACTION_COPY);
+        g_signal_connect(drop, "drop", G_CALLBACK(on_drop), self);
+        gtk_widget_add_controller(self->display, GTK_EVENT_CONTROLLER(drop));
+    }
 
     self->toast_overlay = adw_toast_overlay_new();
     adw_toast_overlay_set_child(ADW_TOAST_OVERLAY(self->toast_overlay),
