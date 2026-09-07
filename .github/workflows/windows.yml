@@ -1,0 +1,66 @@
+name: Windows
+
+# Native MSYS2/UCRT64: the core, the session layer, the FujiNet runtime, the
+# test suite and the Win32 frontend.
+#
+# The Windows-only translation unit is core/coleco/fujitcp_win32.c, the Winsock
+# twin of the staged POSIX fujitcp.c -- compiled instead of it so the staged
+# tree stays a verbatim copy of the firmware's own. It needs ws2_32, already
+# wired into the core CMakeLists.
+#
+# The mingw-w64 cross-compile in cmake/toolchains/ is the desk-side check for
+# all of this: the whole app cross-builds, its import table carries only
+# Windows system DLLs, and every test passes under Wine -- boot_smoke
+# included, which is what catches the trap that clock_nanosleep(TIMER_ABSTIME)
+# is a no-op under mingw and the emulator would otherwise free-run. THIS
+# workflow is the real native build.
+#
+# WITH_COLECO_ROMS=OFF (the OS-7 BIOS is not redistributable, so the
+# ROM-dependent tests report ctest's skip code 77). WITH_FUJINET is left at its
+# default ON to prove the MSYS2 runtime build works here -- the build script
+# has the cygpath/UTF-8/venv handling for it.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  build-and-test:
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: msys2 {0}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          fetch-depth: 1
+
+      - uses: msys2/setup-msys2@v2
+        with:
+          msystem: UCRT64
+          update: true
+          install: >-
+            git
+            make
+            patch
+            mingw-w64-ucrt-x86_64-gcc
+            mingw-w64-ucrt-x86_64-cmake
+            mingw-w64-ucrt-x86_64-ninja
+            mingw-w64-ucrt-x86_64-python
+            mingw-w64-ucrt-x86_64-sdl3
+
+      - name: Confirm the packaged SDL3 is on the 3.x line
+        run: pacman -Q mingw-w64-ucrt-x86_64-sdl3 | grep -qE ' 3\.[0-9]+\.[0-9]+-'
+
+      - name: Configure
+        run: cmake -B build -G Ninja -DWITH_COLECO_ROMS=OFF
+
+      - name: Build
+        run: cmake --build build
+
+      - name: Test
+        working-directory: build
+        run: ctest --output-on-failure

@@ -536,7 +536,13 @@ Done (this pass) -- M8 (part): CI, and the Windows build made real
     the tree so the checkout looks like CI's: 15/15 pass and the five
     ROM-dependent tests SKIP (ctest 77) rather than fail.
 
-  STILL OPEN in M8: flatpak.yml and release.yml.
+  CORRECTION: the linux/macos/windows workflows this pass claimed to add were
+  written while the shell's working directory was inside build-win/, so they
+  landed under a build tree that was deleted minutes later and were never in
+  the commit. Rewritten from the repository root and committed with the
+  flatpak work below. The commit message that claimed them was wrong.
+
+  STILL OPEN in M8: release.yml.
 
 
 Done (this pass) -- M9 (part): the Windows frontend
@@ -608,4 +614,26 @@ Done (this pass) -- M9 (part): the Windows frontend
   frontend calls is declared in the public headers (so no misremembered name
   or signature), and every file balances.
 
-  STILL OPEN in M9: flatpak manifests, the release workflow, packaging.
+  [x] build-aux/flatpak/online.fujinet.go.coleco.{gnome,kde}.yml, and
+      .github/workflows/flatpak.yml.
+      TWO declared dependencies here, unlike the Astrocade port these came
+      from, whose emulator core is in-tree: adamcore and fujinet-firmware are
+      both pinned to the same commits cmake/Dependencies.cmake uses, so a
+      flatpak build cannot pick up a working checkout's state.
+
+  VERIFIED BY ACTUALLY BUILDING BOTH, not just writing YAML:
+
+  * The GNOME flatpak builds, installs and RUNS -- header bar reading
+    "FujiNet connected", the CONFIG client listing its host slots, FujiNet
+    itself running from the sandbox's own provisioned tree at
+    ~/.var/app/online.fujinet.go.coleco.gnome/data/. The KDE one builds too.
+  * libfujinet.so and the runtime tree are inside the artifact, so the
+    complete FujiNet build works in a sandbox with NO NETWORK -- which is the
+    whole point of this job and the strictest test of clone-and-build in the
+    project.
+  * One real bug found by building it: skipping all of tools/roms to keep a
+    developer's BIOS out of the artifact also removed embed-roms.py, which is
+    SOURCE the build needs. Now only the image is skipped, with a note
+    explaining why the directory cannot be.
+
+  STILL OPEN in M9: the release workflow and packaging.
