@@ -230,6 +230,11 @@ int colecosession_gamepad_count(const colecosession *s);
 /* Name of the pad on `port` into dst; returns length, or 0 if none. */
 int colecosession_gamepad_name(const colecosession *s, int port, char *dst,
                                int dstsz);
+/* The controller word the gamepad layer last pushed to `port` (idle 0x7F7F
+ * when it has pushed nothing). For status displays, and for testing the pad
+ * layer at all -- the words it pushes are otherwise invisible, since the
+ * machine merges them with the keyboard's. */
+uint16_t colecosession_gamepad_last_state(const colecosession *s, int port);
 
 /* ---- FujiNet -------------------------------------------------------------*/
 int         colecosession_fujinet_running(const colecosession *s);

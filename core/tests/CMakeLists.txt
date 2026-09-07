@@ -51,4 +51,11 @@ target_link_libraries(debug_test coleco_session)
 add_test(NAME debug COMMAND debug_test "${CMAKE_SOURCE_DIR}/tools/roms")
 set_tests_properties(debug PROPERTIES SKIP_RETURN_CODE 77)
 
+
+# Interactive: needs a pad and a human. Built, never added as a ctest -- no CI
+# runner can press a button, and nothing automated can tell you whether a
+# given controller reports its d-pad as a hat, as buttons or as axes.
+add_executable(gamepad_probe gamepad_probe.c)
+target_link_libraries(gamepad_probe coleco_session)
+
 endif() # TARGET coleco_session

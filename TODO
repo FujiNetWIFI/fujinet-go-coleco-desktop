@@ -542,7 +542,7 @@ Done (this pass) -- M8 (part): CI, and the Windows build made real
   the commit. Rewritten from the repository root and committed with the
   flatpak work below. The commit message that claimed them was wrong.
 
-  STILL OPEN in M8: release.yml.
+  [x] release.yml -- see M9.
 
 
 Done (this pass) -- M9 (part): the Windows frontend
@@ -636,4 +636,28 @@ Done (this pass) -- M9 (part): the Windows frontend
     SOURCE the build needs. Now only the image is skipped, with a note
     explaining why the directory cannot be.
 
-  STILL OPEN in M9: the release workflow and packaging.
+  [x] .github/workflows/release.yml -- a v* tag builds Linux packages for
+      both frontends, both flatpak bundles, a macOS bundle and a Windows zip,
+      and attaches them to a DRAFT release.
+      The version check is adapted rather than copied: the sibling ports
+      hardcode the version in their metainfo and check that it matches
+      project() VERSION, but both of ours are TEMPLATES substituting
+      @PROJECT_VERSION@, so they cannot disagree by construction. The check
+      is therefore that the template is still a template -- which is what
+      makes the guarantee hold -- rather than that two numbers match.
+      Its header says plainly what each job proves: linux and flatpak are
+      regressions if they go red; windows is the first NATIVE build (the
+      cross-build and Wine runs are the desk-side evidence); macos has never
+      been compiled anywhere.
+  [x] Packaging verified locally, not just configured: cpack -G TGZ produces
+      a 3.5 MB package containing both frontends, libfujinet.so, the FujiNet
+      runtime tree and both desktop entries -- and NO BIOS. no_embedded_roms
+      confirms the shipped GNOME binary contains none of the real OS7.rom
+      sitting in tools/roms.
+  [x] core/tests/gamepad_probe.c -- an interactive probe, built but
+      deliberately NOT a ctest: no CI runner can press a button, and nothing
+      automated can tell you whether a given controller reports its d-pad as
+      a hat, as buttons or as axes. Exposed
+      colecosession_gamepad_last_state() so the layer is observable at all;
+      the words it pushes are otherwise invisible, since the machine merges
+      them with the keyboard's.

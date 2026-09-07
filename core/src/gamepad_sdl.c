@@ -207,6 +207,13 @@ int colecosession_gamepad_count(const colecosession *s)
     return n;
 }
 
+uint16_t colecosession_gamepad_last_state(const colecosession *s, int port)
+{
+    gamepad_state *g = s->gamepad;
+    if (!g || port < 0 || port >= MAX_PADS) return 0x7F7F;
+    return g->last[port];
+}
+
 int colecosession_gamepad_name(const colecosession *s, int port, char *dst,
                                int dstsz)
 {
