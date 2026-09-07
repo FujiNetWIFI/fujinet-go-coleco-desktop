@@ -1,0 +1,12 @@
+[Desktop Entry]
+Type=Application
+Name=FujiNet Go ColecoVision
+GenericName=ColecoVision Emulator
+Comment=A ColecoVision with a built-in FujiNet
+Exec=fujinet-go-coleco-gnome %f
+Icon=online.fujinet.go.coleco.gnome
+Terminal=false
+Categories=Game;Emulator;
+Keywords=coleco;colecovision;fujinet;emulator;retro;
+MimeType=application/x-colecovision-rom;
+StartupNotify=true

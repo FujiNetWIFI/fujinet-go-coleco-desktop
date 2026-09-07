@@ -60,7 +60,7 @@ else()
 endif()
 
 # Our own core layer: the paced emulator thread and the frame slot.
-set(COLECO_HOST_SOURCES coleco/host.c)
+set(COLECO_HOST_SOURCES coleco/host.c src/input_map.c)
 
 set(COLECO_CORE_SOURCES ${COLECO_ADAMCORE_SOURCES} ${COLECO_FUJI_SOURCES}
                         ${COLECO_HOST_SOURCES})
@@ -118,3 +118,65 @@ if(COLECO_HAVE_CART)
 endif()
 
 add_subdirectory(tests)
+
+# ---- coleco_session: the frontend contract ---------------------------------
+#
+# A separate target from coleco_core so the core stays SDL-free: audio_sdl.c
+# and gamepad_sdl.c live here, and no_sdl_link_test links coleco_core alone to
+# keep that honest. Were SDL added to the core archive, every consumer of it
+# would pick up an SDL3 runtime dependency whether or not it plays audio.
+find_package(SDL3 CONFIG REQUIRED)
+
+# ---- the embedded BIOS -----------------------------------------------------
+# What WITH_COLECO_ROMS changes is only whether this table has anything in it.
+# Published builds are built with it OFF; core/tests/no_embedded_roms.py
+# checks that against the shipped binaries. See COMPLIANCE.md.
+set(COLECO_ROM_FILE "${CMAKE_SOURCE_DIR}/tools/roms/OS7.rom")
+set(ROMS_EMBEDDED_C "${CMAKE_CURRENT_BINARY_DIR}/roms_embedded.c")
+if(WITH_COLECO_ROMS AND EXISTS "${COLECO_ROM_FILE}")
+  add_custom_command(
+    OUTPUT "${ROMS_EMBEDDED_C}"
+    COMMAND "${Python3_EXECUTABLE}"
+            "${CMAKE_SOURCE_DIR}/tools/roms/embed-roms.py"
+            "${ROMS_EMBEDDED_C}" "${COLECO_ROM_FILE}"
+    DEPENDS "${CMAKE_SOURCE_DIR}/tools/roms/embed-roms.py" "${COLECO_ROM_FILE}"
+    COMMENT "Embedding the ColecoVision BIOS (NOT for redistribution)")
+else()
+  if(WITH_COLECO_ROMS)
+    message(WARNING "WITH_COLECO_ROMS=ON but ${COLECO_ROM_FILE} is missing; "
+                    "building without an embedded BIOS")
+  endif()
+  add_custom_command(
+    OUTPUT "${ROMS_EMBEDDED_C}"
+    COMMAND "${Python3_EXECUTABLE}"
+            "${CMAKE_SOURCE_DIR}/tools/roms/embed-roms.py"
+            --none "${ROMS_EMBEDDED_C}"
+    DEPENDS "${CMAKE_SOURCE_DIR}/tools/roms/embed-roms.py"
+    COMMENT "No embedded BIOS (the shipping configuration)")
+endif()
+
+add_library(coleco_session STATIC
+  src/session.c
+  src/settings.c
+  src/paths.c
+  src/roms.c
+  src/audio_sdl.c
+  src/fujinet_runtime.c
+  "${ROMS_EMBEDDED_C}"
+)
+set_target_properties(coleco_session PROPERTIES C_STANDARD 11)
+target_include_directories(coleco_session
+  PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/include"
+  PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src" "${CMAKE_CURRENT_SOURCE_DIR}/coleco")
+target_compile_definitions(coleco_session PRIVATE
+  _GNU_SOURCE
+  COLECO_DEV_FUJINET_OUT="${CMAKE_SOURCE_DIR}/tools/fujinet/work/out"
+  COLECO_INSTALL_LIBDIR="${CMAKE_INSTALL_FULL_LIBDIR}/fujinet-go-coleco"
+  COLECO_INSTALL_DATADIR="${CMAKE_INSTALL_FULL_DATADIR}/fujinet-go-coleco")
+# The path layer composes COLECO_PATH_MAX buffers out of other max-sized
+# buffers; snprintf truncation is the intended clamp there, not a bug.
+target_compile_options(coleco_session PRIVATE -Wall -Wextra -Wno-format-truncation)
+target_link_libraries(coleco_session PUBLIC coleco_core SDL3::SDL3)
+if(NOT WIN32)
+  target_link_libraries(coleco_session PUBLIC dl)
+endif()

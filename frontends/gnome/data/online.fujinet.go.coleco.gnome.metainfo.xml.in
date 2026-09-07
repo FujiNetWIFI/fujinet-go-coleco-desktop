@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>online.fujinet.go.coleco.gnome</id>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>GPL-3.0-or-later</project_license>
+  <name>FujiNet Go ColecoVision</name>
+  <summary>A ColecoVision with a built-in FujiNet</summary>
+  <description>
+    <p>
+      A self-contained ColecoVision with a FujiNet built in: browse a network
+      host from the console, boot images over the network, and let the booted
+      program keep talking to the network, all in one application.
+    </p>
+    <p>
+      The emulated FujiNet cartridge runs the real cartridge firmware's own
+      protocol sources, so it behaves exactly as the hardware does. An Opcode
+      Super Game Module is fitted by default, and every ColecoVision cartridge
+      mapper is supported.
+    </p>
+    <p>
+      The ColecoVision BIOS is copyrighted firmware and is not included; it
+      can be imported from the application on first run.
+    </p>
+  </description>
+  <launchable type="desktop-id">online.fujinet.go.coleco.gnome.desktop</launchable>
+  <url type="homepage">https://fujinet.online/</url>
+  <url type="bugtracker">https://github.com/FujiNetWIFI/fujinet-go-coleco-desktop/issues</url>
+  <developer id="online.fujinet">
+    <name>Thomas Cherryhomes</name>
+  </developer>
+  <content_rating type="oars-1.1"/>
+  <releases>
+    <release version="@PROJECT_VERSION@" date="2026-09-07">
+      <description>
+        <p>First release.</p>
+      </description>
+    </release>
+  </releases>
+</component>

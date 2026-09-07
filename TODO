@@ -210,9 +210,60 @@ Done (this pass) -- M2: the mailbox cartridge device
   M4, where the in-process runtime lands; cart_test deliberately points at a
   dead port so it stays hermetic.
 
+Done (this pass) -- M3: the session layer and a running app
+-----------------------------------------------------------
+
+  [x] core/coleco/host.{c,h} -- the paced emulator thread and the frame slot.
+      Simpler than the siblings in one respect: adamcore's audio is a
+      documented audio-thread-safe pull from its own timestamped queue, so
+      the device pulls straight through and there is no ring to keep in step.
+  [x] core/include/colecosession.h -- the frontend contract.
+  [x] core/src/{session,settings,paths,roms,audio_sdl,fujinet_runtime}.c --
+      settings/paths/audio/fujinet_runtime transposed from astrocade, with
+      the leftover intv_ prefixes THOSE files still carry from their own
+      transposition normalised out rather than inherited. roms.c written
+      fresh: one BIOS that is deliberately absent is a different problem from
+      Astrocade's three variants, and the empty case is the interesting one,
+      so the error names the directory and points at the import.
+  [x] core/src/input_map.c -- a pure function over an explicit held-key set,
+      no session and no toolkit, because that is the only shape that can be
+      unit-tested and it is where the sibling ports actually caught their
+      input bugs.
+  [x] frontends/gnome -- GTK4/libadwaita: display on the compositor's frame
+      clock, header-bar menu, keyboard capture with focus-loss release, BIOS
+      import, live FujiNet status, TV/square aspect and smooth-scaling
+      toggles persisted to the shared settings store.
+
+  VERIFIED:
+
+  * RAN ON LIVE WAYLAND (grim): the app boots the baked-in FujiNet CONFIG
+    client through the mailbox cartridge and paints "FUJINET CONFIG / SELECT
+    A HOST" in a native window, with the header bar correctly reporting
+    "FujiNet: link down" because no runtime is up yet. That is the whole
+    stack -- adamcore, the staged protocol sources, the transposed cart
+    device, the host thread, the session and the frontend -- working
+    together.
+  * boot_smoke caught a real pacing bug: waiting on a vsync tick that never
+    arrives cost the timeout every frame and pinned a frontend with no frame
+    clock at a steady 30 fps. Asking whether ticks are arriving BEFORE
+    blocking is what makes the wall-clock path a fallback rather than a
+    penalty. 60 fps now; the lower bound is 50, not something loose enough to
+    have called 30 a pass. It also exercises the phase-lock path.
+  * input_test pins exact controller words, including the hold semantics that
+    matter: a keypad key is HELD, not pulsed (the machine samples once a
+    frame, so an instant's press falls between frames), and rolling from one
+    digit to another never leaves the machine with no key held.
+  * session_test runs against a real temporary XDG tree: paths, settings
+    round-tripping AND persisting across sessions, the SGM defaulting on, the
+    BIOS gate failing with a useful message rather than a black screen, then
+    importing a real BIOS and running to a delivered frame.
+  * 9/9 ctest, including no_embedded_roms against the actual GNOME binary
+    (with a real OS7.rom in tools/roms, so the check is meaningful),
+    desktop-file-validate and appstreamcli --pedantic.
+
+
 Then
 ----
-  M3  session layer + GNOME frontend, WITH_FUJINET=OFF
   M4  FujiNet end-to-end -- the long pole
   M5  keypad window + bindings.c + settings + media import + gamepad + audio
   M6  debugger engine + Z80/VDP/SGM/cart panes
