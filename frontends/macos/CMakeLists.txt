@@ -47,6 +47,9 @@ target_link_libraries(fujinet-go-coleco-macos PRIVATE coleco_session
   "-framework Cocoa"
   "-framework CoreVideo"    # CVDisplayLink: this platform's frame clock
   "-framework CoreGraphics"
+  "-framework QuartzCore"   # kCAFilterNearest: the debugger's pixel views,
+                            # which must NOT be smoothed -- they are pattern
+                            # tables and sprite cells
   "-framework Carbon")      # kVK_* virtual key codes
 target_compile_options(fujinet-go-coleco-macos PRIVATE -Wall -Wextra
   -fobjc-arc)
