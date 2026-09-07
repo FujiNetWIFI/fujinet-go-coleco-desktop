@@ -35,11 +35,13 @@
 
 find_package(Git QUIET)
 
-# adamcore, main (fccc280ef). Carries the ColecoVision half this app needs:
+# adamcore, main (611bfe4d0). Carries the ColecoVision half this app needs:
 # the cartridge-device vtable (adamcore_cart_ops) the FujiNet mailbox plugs
 # into, the Opcode Super Game Module, the corrected stock-console memory map,
-# and adamcore-sources.cmake. Merged as tschak909/adamcore#1.
-set(ADAMCORE_COMMIT "fccc280ef234caa9df69b4a1d04cf89ea0112f8e")
+# and adamcore-sources.cmake. Merged as tschak909/adamcore#1, with the SGM
+# validation against Oscar Toledo G.'s super_game_module_test.rom recorded in
+# its PROVENANCE.md as #2.
+set(ADAMCORE_COMMIT "611bfe4d0a6ac76166588ca674ba2d46d10d6bf4")
 set(ADAMCORE_URL "https://github.com/tschak909/adamcore")
 
 # fujinet-firmware, branch colecovision-bringup (844eb6f24). Contains the

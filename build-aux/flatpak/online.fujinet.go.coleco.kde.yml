@@ -110,7 +110,7 @@ modules:
       # src/machine.c (the SENTINEL) already here.
       - type: git
         url: https://github.com/tschak909/adamcore
-        commit: fccc280ef234caa9df69b4a1d04cf89ea0112f8e
+        commit: 611bfe4d0a6ac76166588ca674ba2d46d10d6bf4
         dest: third_party/adamcore
       # Pinned exactly as cmake/Dependencies.cmake: the colecovision-bringup
       # commit, which is where pico/coleco lives until it merges to master.
