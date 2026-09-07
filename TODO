@@ -380,8 +380,28 @@ Done (this pass) -- M5 (part): the controller keypad window and bindings
     working after the key it looks like has been remapped elsewhere. Plus
     that system actions are not controller state.
 
-  STILL OPEN in M5: media import (drag-and-drop a .col), the SDL gamepad
-  layer, and binding gamepad buttons as well as keys.
+  [x] media.c + Open/Eject/drag-and-drop. media_test caught a bad error
+      message before a user could: a disk image with no FujiNet runtime
+      failed with "could not copy", which says nothing about the real
+      problem, because the path is always computed and only the DIRECTORY is
+      missing.
+  [x] gamepad_sdl.c -- a polling thread (SDL_PollEvent must run on the thread
+      that initialised video, and this app's video belongs to GTK, not SDL),
+      pads assigned to ports in connection order, hotplug by rescan, and a
+      pad that vanishes releases its port rather than leaving a direction
+      held forever. Pushes only on change, so a pad re-asserting idle cannot
+      stamp on a key being held.
+      The keypad is deliberately NOT mapped to face buttons: twelve keys do
+      not fit on a gamepad, and guessing a subset would make some games work
+      and others fail for reasons the user cannot see. The panel covers it.
+
+  NOT VERIFIED: the gamepad path has no hardware to test against on this
+  machine (no /dev/input/js*). It starts cleanly with no pad present, and the
+  word it builds goes through the encoder input_test pins, but button and
+  axis mapping is unconfirmed against a real controller.
+
+  STILL OPEN in M5: binding gamepad buttons as well as keys (the binding
+  table has room for it; only keys are wired).
 
 
 Then

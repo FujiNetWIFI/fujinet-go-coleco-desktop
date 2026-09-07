@@ -59,6 +59,7 @@ struct colecosession {
     coleco_input_state panel_input;
 
     void *audio;              /* audio_sdl.c state, NULL until started */
+    void *gamepad;            /* gamepad_sdl.c state, NULL until started */
     int running;
 };
 
@@ -99,5 +100,9 @@ int coleco_binding_target_for_key(uint32_t keysym);
 /* audio_sdl.c */
 int  audio_start(struct colecosession *s);
 void audio_stop(struct colecosession *s);
+
+/* gamepad_sdl.c */
+int  gamepad_start(struct colecosession *s);
+void gamepad_stop(struct colecosession *s);
 
 #endif /* COLECO_SESSION_INTERNAL_H */

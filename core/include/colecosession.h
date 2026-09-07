@@ -220,6 +220,17 @@ void colecosession_sysaction(colecosession *s, int sysact);
  * wants the device itself can pull mono S16 at the configured rate instead. */
 int  colecosession_render_audio(colecosession *s, int16_t *out, int nsamples);
 
+/* ---- gamepads (SDL, hotplugged; started by colecosession_start) ---------
+ * Pads are assigned to ports in connection order. The keypad is deliberately
+ * NOT mapped to face buttons: a ColecoVision keypad has twelve keys and a
+ * gamepad has nowhere near twelve spare buttons, so guessing a subset would
+ * make some games work and others fail invisibly. The on-screen keypad
+ * window covers it, for both ports. */
+int colecosession_gamepad_count(const colecosession *s);
+/* Name of the pad on `port` into dst; returns length, or 0 if none. */
+int colecosession_gamepad_name(const colecosession *s, int port, char *dst,
+                               int dstsz);
+
 /* ---- FujiNet -------------------------------------------------------------*/
 int         colecosession_fujinet_running(const colecosession *s);
 const char *colecosession_fujinet_webui_url(const colecosession *s);

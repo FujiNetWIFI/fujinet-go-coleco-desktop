@@ -168,6 +168,13 @@ int colecosession_start(colecosession *s, const colecosession_start_opts *opts)
         return -1;
     }
 
+    if (opts->enable_gamepad && gamepad_start(s) != 0) {
+        /* A gamepad is a convenience; the keyboard and the on-screen panel
+         * still work. Note it and carry on. */
+        fprintf(stderr, "coleco: gamepads unavailable (%s)\n", s->last_error);
+        s->last_error[0] = '\0';
+    }
+
     if (opts->enable_audio && audio_start(s) != 0) {
         /* Audio is a convenience, not the machine. Note it and carry on
          * rather than refusing to run on a box with no sound device. */
@@ -184,6 +191,7 @@ void colecosession_stop(colecosession *s)
 {
     if (!s->running) return;
     audio_stop(s);
+    gamepad_stop(s);
     coleco_host_stop();
     fujinet_stop(s);
     s->running = 0;
