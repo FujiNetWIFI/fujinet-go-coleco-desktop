@@ -4,6 +4,14 @@
 build*/
 !build-aux/
 
+# Provisioned dependencies. cmake/Dependencies.cmake fetches these at their
+# pinned commits, so they are build output, not source -- and committing them
+# as bare gitlinks (which `git add -A` will happily do once they exist
+# locally) is worse than not tracking them at all: with no .gitmodules a
+# clone gets empty directories, and an empty directory is indistinguishable
+# from a populated one except by the SENTINEL test (PORTING.md 10.4).
+third_party/
+
 # Staged sources: produced by cmake/StageAdamcore.cmake and
 # cmake/StageFujiProto.cmake from the pinned dependencies. Never edit these;
 # edit the source checkout and re-stage with -DADAMCORE_RESTAGE=ON /
