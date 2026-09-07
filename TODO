@@ -148,18 +148,37 @@ regression gate on z80.c -- which none of this modified.
   * From-scratch configure + build + 7/7 ctest on adamcore; the app tree
     rebuilds against the new pin and still passes its own test.
 
-  STILL OPEN -- hardware facts to settle from the SGM schematic and the GI
-  datasheet, NOT from any emulator (it would break the clean-room posture):
-    * which range $53 bit 0 gates, and what owns $6000-$63FF when both the
-      console 1K and the 24K are present  <- most likely to break one game
-    * whether the expansion connector carries /RESET (assumed yes; the
-      cartridge half, no reset line, is stated in fuji_mailbox.h)
-    * whether $50-$53 are fully decoded or mirror across $40-$5F (currently
-      open bus outside $50-$53, the conservative answer)
-    * whether $7F bit 0 does anything on an SGM, and whether $7F is readable
-      (currently reads $FF on a ColecoVision)
-    * the AY volume law: 1.5 dB per envelope step is assumed, giving
-      amp[n] = peak * 10^(-1.5*(31-n)/20)
+  SETTLED, by the right instrument. super_game_module_test.rom (Oscar Toledo
+  G., 2013) is a ColecoVision program that PROBES the SGM and reports what it
+  finds -- so running it is learning about the machine from a diagnostic, not
+  about an emulator, and it needs no clean-room caveat at all.
+
+  This core reaches TEST COMPLETED!, through every stage:
+      DETECTED: COLECOVISION      <- machine identification
+      BASE 1K RAM OK!             <- the stock 1K and its mirror
+      SUPER GAME MODULE DETECTED  <- detection through port $53
+      BASE 24K RAM OK!!           <- the 24K at $2000-$7FFF
+      LOWER 8K RAM OK!            <- the $7F bit-1 BIOS/RAM swap
+      TESTING SGM SOUND CHIP
+      PLAYING + BASE SOUND CHIP...
+      LET US ENJOY SGM MUSIC!     <- AY audio: peak 19704, 88% non-silent
+      TEST COMPLETED!
+  With cfg.sgm clear it correctly stops at "NO SUPER GAME MODULE DETECTED"
+  and the audio is pure silence, so the stock console is genuinely bare.
+
+  That answers the questions that mattered: what owns $6000-$63FF alongside
+  the 24K (the "BASE 1K RAM OK!" and "BASE 24K RAM OK!!" stages pass
+  together), what $53 gates, and what $7F bit 1 does. CoolCV was run on the
+  same ROM as a black-box A/B and shows the identical sequence -- its binary
+  was NOT disassembled, which would have derived behaviour from another
+  emulator and broken the posture PROVENANCE.md states.
+
+  STILL OPEN, but no longer blocking -- nothing observed depends on them:
+    * whether $50-$53 mirror across $40-$5F (currently open bus outside
+      $50-$53, the conservative answer, and no software probes it)
+    * whether $7F is readable on an SGM (currently reads $FF)
+    * the exact AY volume law (1.5 dB per envelope step assumed). The music
+      plays correctly; only its precise loudness curve is unconfirmed.
 
   MERGED AND PINNED: tschak909/adamcore#1 landed on main (fccc280ef) and
   cmake/Dependencies.cmake pins it. -DADAMCORE_SRC is no longer needed for a
