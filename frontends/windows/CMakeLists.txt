@@ -20,6 +20,7 @@ enable_language(RC)
 add_executable(fujinet-go-coleco-windows WIN32
   main.c
   keypad/keypad_window.c
+  debugger/dbg_window.c
   resource.rc
 )
 target_include_directories(fujinet-go-coleco-windows PRIVATE
@@ -28,7 +29,9 @@ target_link_libraries(fujinet-go-coleco-windows PRIVATE
   coleco_session
   # dwmapi: DwmFlush, this platform's frame clock. comdlg32: the file
   # dialogs. shell32: DragQueryFile and ShellExecute for the web UI.
-  dwmapi comdlg32 shell32)
+  # comctl32: the debugger's list and tab controls (and the v6 manifest
+  # above is what makes them look like this decade).
+  dwmapi comdlg32 shell32 comctl32)
 target_compile_options(fujinet-go-coleco-windows PRIVATE -Wall -Wextra)
 
 install(TARGETS fujinet-go-coleco-windows RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})

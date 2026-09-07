@@ -25,6 +25,7 @@
 #include "DisplayWidget.h"
 #include "KeyForward.h"
 #include "KeypadWindow.h"
+#include "debugger/DebuggerWindow.h"
 
 MainWindow::MainWindow(colecosession *session, QWidget *parent)
     : QMainWindow(parent), m_session(session)
@@ -55,6 +56,8 @@ MainWindow::MainWindow(colecosession *session, QWidget *parent)
      * the app misbehaves before a menu is reachable. */
     if (qEnvironmentVariableIsSet("COLECO_OPEN_KEYPAD"))
         toggleKeypad();
+    if (qEnvironmentVariableIsSet("COLECO_OPEN_DEBUGGER"))
+        DebuggerWindow::showFor(this, session);
 
     if (!colecosession_bios_available(session))
         statusBar()->showMessage(
@@ -99,6 +102,8 @@ void MainWindow::buildMenus()
     QMenu *view = menuBar()->addMenu(QStringLiteral("&View"));
     view->addAction(QStringLiteral("&Controllers"), QKeySequence(Qt::Key_F9),
                     this, &MainWindow::toggleKeypad);
+    view->addAction(QStringLiteral("&Debugger"), QKeySequence(Qt::Key_F12),
+                    this, [this] { DebuggerWindow::showFor(this, m_session); });
     view->addSeparator();
     QAction *tv = view->addAction(QStringLiteral("&TV Aspect (4:3)"));
     tv->setCheckable(true);
@@ -185,6 +190,10 @@ void MainWindow::keyPressEvent(QKeyEvent *e)
 {
     if (e->isAutoRepeat()) return;
     if (e->key() == Qt::Key_F9) { toggleKeypad(); return; }
+    if (e->key() == Qt::Key_F12) {
+        DebuggerWindow::showFor(this, m_session);
+        return;
+    }
 
     const uint32_t ks = colecoKeysymFromQt(e);
     if (!ks) { QMainWindow::keyPressEvent(e); return; }

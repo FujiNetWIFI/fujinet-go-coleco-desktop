@@ -1,0 +1,77 @@
+/*
+ * Debugger window for the KDE/Qt frontend.
+ * SPDX-License-Identifier: GPL-3.0-or-later
+ */
+
+#pragma once
+
+#include <QMainWindow>
+
+#include "colecodebug.h"
+#include "colecosession.h"
+
+class QComboBox;
+class QLabel;
+class QLineEdit;
+class QPlainTextEdit;
+class QPushButton;
+
+class DebuggerWindow : public QMainWindow {
+    Q_OBJECT
+public:
+    /* Shows (creating on first use) the debugger for the session. */
+    static void showFor(QWidget *parent, colecosession *session);
+
+signals:
+    void stopped(int reason, quint16 pc);
+
+private:
+    DebuggerWindow(QWidget *parent, colecosession *session);
+    ~DebuggerWindow() override;
+
+    void buildUi();
+    void refreshAll();
+    void refreshDisasm();
+    void refreshRegs();
+    void refreshMem();
+    void refreshBps();
+    void refreshTrace();
+    void refreshVdp();
+    void onStopped(int reason, quint16 pc);
+    void pauseContinue();
+    bool parseAddr(const QString &text, quint16 *out);
+    void vramSubmit();
+    void vramPage(int delta);
+
+    colecosession *m_session;
+    colecodebug *m_dbg;
+
+    QLabel *m_status;
+    QPushButton *m_pauseBtn;
+    QPlainTextEdit *m_disasm;
+    quint16 m_disasmBase = 0;
+    bool m_followPc = true;
+
+    QLineEdit *m_regEdit[8];
+    QLabel *m_flags;
+
+    QLineEdit *m_memAddr;
+    QPlainTextEdit *m_memView;
+    quint16 m_memBase = 0xFC30;
+
+    QLineEdit *m_bpEntry;
+    QPlainTextEdit *m_bpView;
+    QPlainTextEdit *m_traceView;
+
+    QLabel *m_nt, *m_pat, *m_spr, *m_pal;
+    QComboBox *m_patBank;
+    QPlainTextEdit *m_spriteInfo;
+    QPlainTextEdit *m_vdpState;
+
+    QLineEdit *m_vramEntry;
+    QLabel *m_vramStatus;
+    QPlainTextEdit *m_vramView;
+    quint16 m_vramBase = 0;
+
+    QTimer *m_tick;
+};

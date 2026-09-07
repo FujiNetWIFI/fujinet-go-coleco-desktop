@@ -29,6 +29,7 @@
 #include <string.h>
 
 #include "colecosession.h"
+#include "debugger/dbg_window.h"
 #include "keypad/keypad_window.h"
 #include "key_forward.h"
 #include "resource.h"
@@ -153,6 +154,7 @@ static void build_menu(HWND hwnd)
     AppendMenu(machine, MF_STRING, IDM_EXIT, "E&xit");
 
     AppendMenu(view, MF_STRING, IDM_KEYPAD, "&Controllers\tF9");
+    AppendMenu(view, MF_STRING, IDM_DEBUGGER, "&Debugger\tF12");
     AppendMenu(view, MF_SEPARATOR, 0, NULL);
     AppendMenu(view, MF_STRING | MF_CHECKED, IDM_TV_ASPECT, "&TV Aspect (4:3)");
     AppendMenu(view, MF_STRING, IDM_SMOOTH, "&Smooth Scaling");
@@ -240,6 +242,10 @@ static LRESULT CALLBACK wndproc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp)
             coleco_keypad_window_toggle(hwnd, g_session);
             return 0;
         }
+        if (wp == VK_F12) {
+            coleco_debugger_show(hwnd, g_session);
+            return 0;
+        }
         if (lp & (1 << 30)) return 0;  /* auto-repeat: the key is already held */
         ks = coleco_keysym_from_vk((int)wp);
         if (!ks) break;
@@ -282,6 +288,9 @@ static LRESULT CALLBACK wndproc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp)
             return 0;
         case IDM_KEYPAD:
             coleco_keypad_window_toggle(hwnd, g_session);
+            return 0;
+        case IDM_DEBUGGER:
+            coleco_debugger_show(hwnd, g_session);
             return 0;
         case IDM_TV_ASPECT: {
             HMENU m = GetMenu(hwnd);
@@ -402,9 +411,24 @@ int WINAPI WinMain(HINSTANCE inst, HINSTANCE prev, LPSTR cmdline, int show)
                    "FujiNet Go ColecoVision", MB_ICONWARNING | MB_OK);
     }
 
+    /* The family's launch hooks: the way in when the app misbehaves before a
+     * menu is reachable, and how a headless check can look at either panel. */
+    {
+        const char *env = getenv("COLECO_OPEN_KEYPAD");
+        if (env && *env && *env != '0')
+            coleco_keypad_window_toggle(g_hwnd, g_session);
+        env = getenv("COLECO_OPEN_DEBUGGER");
+        if (env && *env && *env != '0')
+            coleco_debugger_show(g_hwnd, g_session);
+    }
+
     g_present_thread = CreateThread(NULL, 0, present_thread, NULL, 0, NULL);
 
     while (GetMessage(&msg, NULL, 0, 0) > 0) {
+        /* Before TranslateMessage, so the debugger's F5/F7/F8 accelerators
+         * work even while one of its edit fields has the focus. */
+        if (coleco_debugger_pretranslate(&msg))
+            continue;
         TranslateMessage(&msg);
         DispatchMessage(&msg);
     }

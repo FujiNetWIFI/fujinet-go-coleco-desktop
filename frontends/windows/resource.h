@@ -11,6 +11,7 @@
 #define IDM_IMPORT_BIOS    1005
 #define IDM_EXIT           1006
 #define IDM_KEYPAD         1010
+#define IDM_DEBUGGER       1013
 #define IDM_TV_ASPECT      1011
 #define IDM_SMOOTH         1012
 #define IDM_FUJINET_CONFIG 1020

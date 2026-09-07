@@ -462,9 +462,43 @@ Done (this pass) -- M6: the debugger
     Meanwhile the main window keeps running the CONFIG client at full speed,
     which is the conditional-engagement claim holding.
 
-  NOT YET: the SGM/AY register pane and the cart-device pane (mailbox status
-  page, colmap plan and bank state) the plan calls for. The engine exposes
-  what they need; the panes are not written.
+  CORRECTED LATER IN THIS PASS. What is written above understates how badly
+  the first attempt fell short, and the hand-written GNOME window it describes
+  has been replaced.
+
+  The engine's vdpview.c exports TWELVE functions -- render_nametable,
+  render_patterns, render_sprites, render_palette, get_tables, format_state,
+  format_hex, parse_poke, describe_register, describe_status, register_name,
+  color_name -- and the window used TWO of them. There was also no debugger at
+  all in the KDE, macOS or Windows frontends.
+
+  Fixed by transposing adam-desktop's four complete debugger windows instead
+  of hand-writing them: same Z80, same TMS9928A, same vdpview.c, and a clean
+  transposition (nothing in them touches ADAM-specific machine state -- no
+  mem_ctrl, no AdamNet, no SmartWriter). All four now have CPU / VDP / Trace
+  tabs, breakpoints addressable BY SYMBOL, a trace ring, a memory pane and
+  the full VDP decode with every renderer wired up.
+
+    frontends/gnome/debugger/dbg_window.c        847 lines
+    frontends/kde/debugger/DebuggerWindow.cpp    645
+    frontends/macos/debugger/DebuggerWindow.m    769
+    frontends/windows/debugger/dbg_window.c     1059
+
+  VERIFIED BY RUNNING THEM:
+  * GNOME: CPU/VDP/Trace tabs, full Z80 register file with flags and cycle
+    count, breakpoints-by-symbol, memory dump.
+  * KDE: the same, and its VDP pane LIVE-RENDERS the name table -- "FUJINET
+    CONFIG / SELECT A HOST" drawn from VRAM -- with the pattern table beside
+    it and Nametable/Patterns/Sprites and VDP/VRAM/Trace tabs.
+  * Windows: runs under Wine with the debugger window up (disassembly,
+    registers, breakpoints, memory). Needed comctl32 linked, which the link
+    error found; the v6 manifest was already there to theme it.
+  * macOS: still cannot be compiled here. Every debugger and session symbol
+    it calls resolves against the public headers.
+
+  Two things the frontends needed on top of the transposition: F12 and a
+  View-menu item in all four, and COLECO_OPEN_DEBUGGER / COLECO_OPEN_KEYPAD
+  launch hooks (the Windows frontend had neither).
 
 
 Done (this pass) -- M7: the KDE frontend

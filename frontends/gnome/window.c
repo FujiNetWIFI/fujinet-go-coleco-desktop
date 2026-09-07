@@ -15,7 +15,7 @@
 #include "window.h"
 
 #include "display.h"
-#include "debugger/debugger_window.h"
+#include "debugger/dbg_window.h"
 #include "keypad/keypad_window.h"
 
 #include <string.h>
@@ -67,7 +67,7 @@ static gboolean on_key_pressed(GtkEventControllerKey *ctrl, guint keyval,
         return TRUE;
     }
     if (keyval == GDK_KEY_F12) {
-        coleco_debugger_window_toggle(GTK_WINDOW(self), self->session);
+        coleco_debugger_show(GTK_WINDOW(self), self->session);
         return TRUE;
     }
     sysact = coleco_input_key_sysaction(keyval);
@@ -243,7 +243,7 @@ static void action_debugger(GSimpleAction *a, GVariant *p, gpointer user_data)
 {
     ColecoWindow *self = user_data;
     (void)a; (void)p;
-    coleco_debugger_window_toggle(GTK_WINDOW(self), self->session);
+    coleco_debugger_show(GTK_WINDOW(self), self->session);
 }
 
 static void action_reset_config(GSimpleAction *a, GVariant *p,
@@ -472,7 +472,7 @@ GtkWidget *coleco_window_new(AdwApplication *app, colecosession *session)
             coleco_keypad_window_toggle(GTK_WINDOW(self), session);
         env = g_getenv("COLECO_OPEN_DEBUGGER");
         if (env && *env && *env != '0')
-            coleco_debugger_window_toggle(GTK_WINDOW(self), session);
+            coleco_debugger_show(GTK_WINDOW(self), session);
     }
 
     if (!colecosession_bios_available(session)) {

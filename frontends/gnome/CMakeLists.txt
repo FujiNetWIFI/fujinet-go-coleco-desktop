@@ -23,7 +23,7 @@ add_executable(fujinet-go-coleco-gnome
   window.c
   display.c
   keypad/keypad_window.c
-  debugger/debugger_window.c
+  debugger/dbg_window.c
 )
 target_link_libraries(fujinet-go-coleco-gnome
   PRIVATE coleco_session PkgConfig::GTK4 PkgConfig::ADW)

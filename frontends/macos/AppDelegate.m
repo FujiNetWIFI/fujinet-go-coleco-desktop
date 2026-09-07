@@ -9,6 +9,7 @@
 
 #import "ColecoKeyForward.h"
 #import "DisplayView.h"
+#import "debugger/DebuggerWindow.h"
 #import "keypad/KeypadWindow.h"
 
 #include <string.h>
@@ -137,6 +138,13 @@
         [a runModal];
     }
 
+    /* The family's launch hooks, for when the app misbehaves before a menu
+     * is reachable. */
+    if (getenv("COLECO_OPEN_KEYPAD"))
+        [ColecoKeypadWindow toggleWithSession:_session];
+    if (getenv("COLECO_OPEN_DEBUGGER"))
+        [DebuggerWindow showForSession:_session];
+
     _statusTimer = [NSTimer scheduledTimerWithTimeInterval:1.0
         repeats:YES block:^(NSTimer *t) { (void)t; [self updateTitle]; }];
     [self updateTitle];
@@ -216,6 +224,8 @@
     NSMenu *view = [[NSMenu alloc] initWithTitle:@"View"];
     [[view addItemWithTitle:@"Controllers" action:@selector(toggleKeypad:)
               keyEquivalent:@"k"] setTarget:self];
+    [[view addItemWithTitle:@"Debugger" action:@selector(showDebugger:)
+              keyEquivalent:@"d"] setTarget:self];
     [view addItem:[NSMenuItem separatorItem]];
     NSMenuItem *tv = [view addItemWithTitle:@"TV Aspect (4:3)"
                                      action:@selector(toggleAspect:)
@@ -319,6 +329,12 @@
 {
     (void)sender;
     [ColecoKeypadWindow toggleWithSession:_session];
+}
+
+- (void)showDebugger:(id)sender
+{
+    (void)sender;
+    [DebuggerWindow showForSession:_session];
 }
 
 - (void)toggleAspect:(id)sender
