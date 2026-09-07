@@ -262,9 +262,67 @@ Done (this pass) -- M3: the session layer and a running app
     desktop-file-validate and appstreamcli --pedantic.
 
 
+Done (this pass) -- M4: FujiNet end-to-end, in-process
+------------------------------------------------------
+
+  [x] tools/fujinet/build-fujinet-desktop.sh + support/fujinet_desktop_entry.cpp
+      + patches/0001-rs232-default-hosts.patch, transposed from astrocade
+      (already PC_TARGET=RS232); ports 11500/11501 -> 11502/11503.
+  [x] cmake/FujiNetRuntime.cmake wired into the top-level build, so a plain
+      `cmake --build` produces the runtime with no separate step.
+
+  TWO REAL BUGS INHERITED FROM THE SIBLING, fixed rather than carried:
+    * fujinet_desktop_entry.cpp's default web-admin bind was hardcoded to
+      127.0.0.1:64003 -- the INTELLIVISION port. It is normally masked
+      because fujinet_runtime.c always sets FUJINET_WEBUI_BIND, but the
+      moment it is not, the app binds another app's port and collides with
+      it rather than failing visibly. astrocade still carries this.
+    * The FujiNet build key file was named .intv-target. Cosmetic, but it is
+      the same drift, and the jzIntv comments describing a core this target
+      does not use went with it.
+
+  VERIFIED, running:
+
+  * The app LISTENS on 127.0.0.1:11502 (BoIP) and :11503 (web UI); the web UI
+    answers HTTP 200. Checked with ss and curl, and checked FIRST that
+    nothing else held those ports (PORTING.md 10.20 -- there are in fact two
+    stray fujinet-pc processes on this machine, on 8000 and 8003, which is
+    exactly the situation that catches people out).
+  * The cartridge dials into its own in-process FujiNet: both ends of an
+    ESTABLISHED loopback connection belong to the same PID. The log shows
+    "Setting up BoIPChannel: listening on 127.0.0.1:11502", then
+    "BoIPChannel connected", then our own "fujinet: connected to
+    127.0.0.1:11502". (The connect/disconnect pair just before it is
+    fujinet_wait_for_boip probing the port, by design, not a double connect.)
+  * A REAL TRANSACTION ON THE WIRE, end to end:
+        CF: dev:70 cmd:f4 dlen:-1
+        Fuji cmd: READ HOST SLOTS
+        fujinet: dev=70 cmd=F4 nparam=0 txlen=0 seq=1
+                 -> err=0 reply=06 rxlen=256 "SD"
+    device 0x70, command 0xF4 (READ_HOST_SLOTS), seq=1 (the client's first,
+    derived from ACKSEQ+1 as the protocol requires), ACK, 256 bytes of host
+    slots back. That is the Z80's hotspot reads -> fujimail -> fujibus ->
+    SLIP -> TCP -> libfujinet's own Fuji handler and back into the cartridge
+    window.
+  * ON SCREEN (grim, live Wayland): the header bar reads "FujiNet connected"
+    and the CONFIG client lists its hosts -- "1 SD" under the selection bar,
+    "2 IRATA.ONLINE", 3-8 empty, with the "FIRE OPEN  9 RENAME  # CONFIG"
+    footer. The selection bar is the client's second-charset-copy trick
+    working through this emulator's VDP.
+  * Reconfiguring does NOT trigger a multi-minute FujiNet rebuild
+    (PORTING.md 10.5's configure_file COPYONLY stamp): an incremental build
+    after a fresh configure takes 0.13s.
+  * mbedTLS on this machine is 4.2.0, which 10.16 says is too new (4.x drops
+    mbedtls/md5.h); the script detected that and built the pinned 3.6.5.
+
+  NOT YET EXERCISED: a network boot (DBC push -> FN_BOOT_READY -> BOOTLOCK ->
+  the $FDFE swap). The path is corpus-verified upstream (M7 soak, 192/192)
+  and the device is a transposition of the model that was soaked, but it has
+  not been driven from this app against a live TNFS host yet.
+
+
 Then
 ----
-  M4  FujiNet end-to-end -- the long pole
   M5  keypad window + bindings.c + settings + media import + gamepad + audio
   M6  debugger engine + Z80/VDP/SGM/cart panes
   M7  KDE frontend

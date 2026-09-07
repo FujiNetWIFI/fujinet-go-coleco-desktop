@@ -64,7 +64,7 @@ add_subdirectory(core)
 # normal build and installed alongside the app (the session provisions the
 # user's runtime tree from the installed copy on first start). Set up before
 # the frontends so the macOS bundle can depend on the library it packs.
-include(cmake/FujiNetRuntime.cmake OPTIONAL)
+include(cmake/FujiNetRuntime.cmake)
 
 # Each frontend is native to one platform; with FRONTEND=all (the default)
 # only the host's viable frontends are considered, so a Windows/macOS
