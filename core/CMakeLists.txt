@@ -59,7 +59,11 @@ else()
   list(APPEND COLECO_FUJI_SOURCES "${FUJI_GEN}/fujitcp.c")
 endif()
 
-set(COLECO_CORE_SOURCES ${COLECO_ADAMCORE_SOURCES} ${COLECO_FUJI_SOURCES})
+# Our own core layer: the paced emulator thread and the frame slot.
+set(COLECO_HOST_SOURCES coleco/host.c)
+
+set(COLECO_CORE_SOURCES ${COLECO_ADAMCORE_SOURCES} ${COLECO_FUJI_SOURCES}
+                        ${COLECO_HOST_SOURCES})
 
 # The cart device needs adamcore's cartridge vtable, which lands upstream as
 # part of M1. Until the pin carries it the core still builds -- a plain
@@ -106,6 +110,8 @@ endif()
 
 # Our own modules are warning-clean; the staged trees are vendored and are
 # built with whatever warnings upstream is comfortable with.
+set_source_files_properties(coleco/host.c
+  PROPERTIES COMPILE_OPTIONS "-Wall;-Wextra")
 if(COLECO_HAVE_CART)
   set_source_files_properties(coleco/fujinet_cart.c
     PROPERTIES COMPILE_OPTIONS "-Wall;-Wextra")

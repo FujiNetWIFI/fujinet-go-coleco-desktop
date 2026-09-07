@@ -13,3 +13,10 @@ if(COLECO_HAVE_CART)
   target_link_libraries(cart_test coleco_core)
   add_test(NAME cart COMMAND cart_test)
 endif()
+
+# The real machine on its real thread. Skips (77) without a BIOS, which is
+# every CI and release checkout -- this repository does not ship one.
+add_executable(boot_smoke boot_smoke.c)
+target_link_libraries(boot_smoke coleco_core)
+add_test(NAME boot_smoke COMMAND boot_smoke "${CMAKE_SOURCE_DIR}/tools/roms")
+set_tests_properties(boot_smoke PROPERTIES SKIP_RETURN_CODE 77)
