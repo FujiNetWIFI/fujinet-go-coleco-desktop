@@ -729,3 +729,50 @@ Done (this pass) -- M9 (part): the Windows frontend
       colecosession_gamepad_last_state() so the layer is observable at all;
       the words it pushes are otherwise invisible, since the machine merges
       them with the keyboard's.
+
+
+Done (this pass) -- CI green on all four platforms
+--------------------------------------------------
+
+The workflows had never actually run until the repository was pushed. They
+did what they exist to do.
+
+  Linux     success
+  Flatpak   success
+  Windows   success  (~13 min: it builds the FujiNet runtime natively under
+                      MSYS2, so it is slow rather than stuck)
+  macOS     success  -- after fixing THREE real bugs it found
+
+  macOS had never been compiled anywhere, and the first real build proved
+  the point of saying so:
+
+    * DisplayView.m used mach_timebase_info with no <mach/mach_time.h>.
+      CoreVideo hands out host time in mach_absolute_time units, which are
+      not nanoseconds on every machine, so that conversion is load bearing.
+    * PadButton declared `int target`, SHADOWING NSControl's own `target`
+      property -- the object an action is sent to. Renamed padTarget. The
+      compiler warned three ways (atomic mismatch, incompatible type, auto
+      synthesis refusing) before erroring, which is a fair warning that a
+      control's own machinery was being quietly broken.
+    * QuartzCore was not linked, so kCAFilterNearest was undefined at link
+      time. The debugger's pattern-table and sprite views need it: an 8x8
+      glyph run through bilinear filtering is unreadable.
+
+  None of the three was reachable by the symbol audit that stood in for a
+  compiler -- they are about Cocoa's types and Apple's frameworks, not about
+  this project's API surface. That is exactly what the macOS job is for, and
+  the TODO entry predicting it was right.
+
+  macOS runs 10/10 tests (the ROM-dependent ones skipping, as everywhere).
+
+
+Remaining
+---------
+
+  * Three SGM questions, none blocking, nothing observed depends on them:
+    whether $50-$53 mirror across $40-$5F, whether $7F is readable on an SGM,
+    and the exact AY volume law.
+  * The macOS app has been BUILT but never RUN -- no Mac here. Its tests pass
+    on the runner; nobody has looked at the window.
+  * Binding gamepad buttons as well as keys (the table has room; only keys
+    are wired).
