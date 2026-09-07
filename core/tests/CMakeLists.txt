@@ -40,3 +40,9 @@ add_test(NAME bindings COMMAND bindings_test)
 add_executable(media_test media_test.c)
 target_link_libraries(media_test coleco_session)
 add_test(NAME media COMMAND media_test "${CMAKE_SOURCE_DIR}/tools/roms")
+
+# The debugger engine against a real running machine. Skips without a BIOS.
+add_executable(debug_test debug_test.c)
+target_link_libraries(debug_test coleco_session)
+add_test(NAME debug COMMAND debug_test "${CMAKE_SOURCE_DIR}/tools/roms")
+set_tests_properties(debug PROPERTIES SKIP_RETURN_CODE 77)

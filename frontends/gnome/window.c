@@ -15,6 +15,7 @@
 #include "window.h"
 
 #include "display.h"
+#include "debugger/debugger_window.h"
 #include "keypad/keypad_window.h"
 
 #include <string.h>
@@ -65,6 +66,10 @@ static gboolean on_key_pressed(GtkEventControllerKey *ctrl, guint keyval,
         coleco_keypad_window_toggle(GTK_WINDOW(self), self->session);
         return TRUE;
     }
+    if (keyval == GDK_KEY_F12) {
+        coleco_debugger_window_toggle(GTK_WINDOW(self), self->session);
+        return TRUE;
+    }
     sysact = coleco_input_key_sysaction(keyval);
     if (sysact >= 0) {
         colecosession_sysaction(self->session, sysact);
@@ -84,7 +89,7 @@ static gboolean on_key_released(GtkEventControllerKey *ctrl, guint keyval,
     ColecoWindow *self = user_data;
     (void)ctrl; (void)keycode; (void)state;
 
-    if (keyval == GDK_KEY_F9) return TRUE;
+    if (keyval == GDK_KEY_F9 || keyval == GDK_KEY_F12) return TRUE;
     if (coleco_input_key_sysaction(keyval) >= 0) return TRUE;
     if (coleco_input_key(&self->input, keyval, 0)) {
         push_input(self);
@@ -234,6 +239,13 @@ static void action_keypad(GSimpleAction *a, GVariant *p, gpointer user_data)
     coleco_keypad_window_toggle(GTK_WINDOW(self), self->session);
 }
 
+static void action_debugger(GSimpleAction *a, GVariant *p, gpointer user_data)
+{
+    ColecoWindow *self = user_data;
+    (void)a; (void)p;
+    coleco_debugger_window_toggle(GTK_WINDOW(self), self->session);
+}
+
 static void action_reset_config(GSimpleAction *a, GVariant *p,
                                 gpointer user_data)
 {
@@ -321,6 +333,7 @@ static const GActionEntry win_actions[] = {
     { "reset", action_reset, NULL, NULL, NULL, { 0 } },
     { "reset-config", action_reset_config, NULL, NULL, NULL, { 0 } },
     { "keypad", action_keypad, NULL, NULL, NULL, { 0 } },
+    { "debugger", action_debugger, NULL, NULL, NULL, { 0 } },
     { "import-bios", action_import_bios, NULL, NULL, NULL, { 0 } },
     { "fujinet-config", action_fujinet_config, NULL, NULL, NULL, { 0 } },
     { "tv-aspect", action_aspect, NULL, "true", NULL, { 0 } },
@@ -344,6 +357,7 @@ static GMenu *build_menu(void)
     g_menu_append_section(menu, NULL, G_MENU_MODEL(machine));
 
     g_menu_append(view, "_Controllers (F9)", "win.keypad");
+    g_menu_append(view, "_Debugger (F12)", "win.debugger");
     g_menu_append(view, "_TV Aspect (4:3)", "win.tv-aspect");
     g_menu_append(view, "_Smooth Scaling", "win.smooth");
     g_menu_append_section(menu, NULL, G_MENU_MODEL(view));
@@ -456,6 +470,9 @@ GtkWidget *coleco_window_new(AdwApplication *app, colecosession *session)
         const char *env = g_getenv("COLECO_OPEN_KEYPAD");
         if (env && *env && *env != '0')
             coleco_keypad_window_toggle(GTK_WINDOW(self), session);
+        env = g_getenv("COLECO_OPEN_DEBUGGER");
+        if (env && *env && *env != '0')
+            coleco_debugger_window_toggle(GTK_WINDOW(self), session);
     }
 
     if (!colecosession_bios_available(session)) {

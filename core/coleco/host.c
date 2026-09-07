@@ -24,6 +24,9 @@ static pthread_t s_thread;
 static atomic_bool s_running;
 static atomic_bool s_stop_req;
 static atomic_int s_reset_req = -1;
+static atomic_bool s_dbg_engaged;
+static atomic_bool s_audio_mute;
+static int (*s_frame_fn)(void);
 static char s_error[256];
 
 static uint8_t s_os7[ADAMCORE_OS7_ROM_SIZE];
@@ -201,7 +204,14 @@ static void *machine_thread(void *arg)
         if (mode >= 0)
             adamcore_request_reset(s_core, mode);
 
-        adamcore_run_frame(s_core);
+        /* The stepped path only when the debugger is actually engaged:
+         * adamcore_debug_run is bit-identical to adamcore_run_frame (its
+         * debug_step test pins that) but costs more per instruction, so it
+         * is not what an unattended machine runs. */
+        if (atomic_load(&s_dbg_engaged) && s_frame_fn)
+            s_frame_fn();
+        else
+            adamcore_run_frame(s_core);
         frame_publish(adamcore_framebuffer(s_core, NULL, NULL));
 
         if (vsync_recent() && wait_vsync(&vs_seen, vs_timeout_ns)) {
@@ -342,7 +352,10 @@ int coleco_host_render_audio(int16_t *out, int nsamples)
      * and is explicitly audio-thread safe, so there is no ring of our own to
      * go through. When the machine is stopped, hand back silence rather than
      * leaving the device's buffer undefined. */
-    if (!s_core) {
+    /* Muted while the debugger holds the machine: without this the last few
+     * milliseconds before the break repeat forever, which is both maddening
+     * and a good way to mistake a paused emulator for a hung one. */
+    if (!s_core || atomic_load(&s_audio_mute)) {
         memset(out, 0, (size_t)nsamples * sizeof *out);
         return nsamples;
     }
@@ -352,6 +365,26 @@ int coleco_host_render_audio(int16_t *out, int nsamples)
 void coleco_host_joystick(int port, uint16_t state)
 {
     if (s_core) adamcore_set_joystick(s_core, port, state);
+}
+
+void coleco_host_set_debug_engaged(int engaged)
+{
+    atomic_store(&s_dbg_engaged, engaged ? true : false);
+}
+
+void coleco_host_set_audio_mute(int mute)
+{
+    atomic_store(&s_audio_mute, mute ? true : false);
+}
+
+int coleco_host_stopping(void)
+{
+    return atomic_load(&s_stop_req);
+}
+
+void coleco_host_set_frame_fn(int (*fn)(void))
+{
+    s_frame_fn = fn;
 }
 
 void coleco_host_reset(void)

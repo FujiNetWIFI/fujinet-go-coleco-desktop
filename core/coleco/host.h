@@ -76,4 +76,25 @@ struct coleco_cart *coleco_host_cart(void);
 /* The core itself, for the debugger. NULL when stopped. */
 adamcore *coleco_host_core(void);
 
+/* ---- the debugger's seams -------------------------------------------------
+ * The debugger engine lives beside this file rather than in the session,
+ * because the core it steps is owned here. These three flags are what the
+ * paced loop has to know about it.
+ *
+ * engaged: run the instruction-stepped path instead of run_frame. Set while
+ *          anything is paused, stepping, or has a breakpoint armed, and
+ *          clear otherwise -- adamcore_debug_run is bit-identical to
+ *          adamcore_run_frame but costs more, so it is not the default.
+ * mute:    silence the audio pull while paused, or the last few
+ *          milliseconds before the break loop forever.
+ * stopping: the loop is shutting down; a debugger blocked in its pause wait
+ *          has to notice and let go. */
+void coleco_host_set_debug_engaged(int engaged);
+void coleco_host_set_audio_mute(int mute);
+int  coleco_host_stopping(void);
+
+/* Installed by the debugger: runs one frame the stepped way. Returning
+ * non-zero means the framebuffer changed. NULL restores run_frame. */
+void coleco_host_set_frame_fn(int (*fn)(void));
+
 #endif

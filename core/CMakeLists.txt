@@ -67,8 +67,19 @@ endif()
 # dragging the settings store down into the core.
 set(COLECO_HOST_SOURCES coleco/host.c)
 
+# The debugger engine. Same Z80 and same TMS9928A as the ADAM app, so its
+# disassembler and video view carry over -- z80dasm.c in particular is a
+# fresh implementation from the Zilog manual, written that way because
+# ADAMEm's is non-commercial-licensed and GPL-incompatible (COMPLIANCE.md).
+set(COLECO_DEBUGGER_SOURCES
+  debugger/debugger.c
+  debugger/z80dasm.c
+  debugger/symbols.c
+  debugger/symbols_builtin.c
+  debugger/vdpview.c)
+
 set(COLECO_CORE_SOURCES ${COLECO_ADAMCORE_SOURCES} ${COLECO_FUJI_SOURCES}
-                        ${COLECO_HOST_SOURCES})
+                        ${COLECO_HOST_SOURCES} ${COLECO_DEBUGGER_SOURCES})
 
 # The cart device needs adamcore's cartridge vtable, which lands upstream as
 # part of M1. Until the pin carries it the core still builds -- a plain
@@ -115,7 +126,9 @@ endif()
 
 # Our own modules are warning-clean; the staged trees are vendored and are
 # built with whatever warnings upstream is comfortable with.
-set_source_files_properties(coleco/host.c
+# symbols_builtin.c is a generated table of facts, not hand-written code.
+list(REMOVE_ITEM COLECO_DEBUGGER_WARN ${CMAKE_CURRENT_SOURCE_DIR}/debugger/symbols_builtin.c)
+set_source_files_properties(coleco/host.c ${COLECO_DEBUGGER_SOURCES}
   PROPERTIES COMPILE_OPTIONS "-Wall;-Wextra")
 if(COLECO_HAVE_CART)
   set_source_files_properties(coleco/fujinet_cart.c

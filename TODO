@@ -404,9 +404,64 @@ Done (this pass) -- M5 (part): the controller keypad window and bindings
   table has room for it; only keys are wired).
 
 
+Done (this pass) -- M6: the debugger
+------------------------------------
+
+  [x] core/debugger/{debugger,z80dasm,symbols,symbols_builtin,vdpview}.c
+      transposed from adam-desktop -- same Z80, same TMS9928A, so the
+      disassembler and the video view carry over directly. z80dasm.c is a
+      fresh implementation from the Zilog manual (ADAMEm's is
+      non-commercial-licensed and GPL-incompatible; COMPLIANCE.md).
+      symbols_builtin.c keeps the OS-7 table and DROPS the EOS one -- the
+      ColecoVision has no EOS.
+  [x] RE-ARCHITECTED on the way across, not just renamed. The ADAM engine
+      reaches into its session struct for the core (s->core, s->dbg_engaged,
+      s->audio_mute, s->stop_flag), which is why its debugger cannot exist
+      without a session. Here the core is host.c's, so the engine is a
+      singleton beside it and host.c grew three seams:
+      set_debug_engaged (run the stepped path), set_audio_mute (silence while
+      paused, or the last few ms before the break repeat forever) and
+      stopping (so a debugger blocked in its pause wait lets go at shutdown),
+      plus a frame function the paced loop calls while engaged.
+      Engagement is conditional: adamcore_debug_run is bit-identical to
+      run_frame (adamcore's own debug_step test pins that) but costs more, so
+      an open-but-idle debugger window must not slow the machine.
+  [x] frontends/gnome/debugger/debugger_window.c -- Z80 tab (registers
+      including the shadow bank, disassembly with breakpoint and PC markers,
+      hex memory view, breakpoint entry, Follow PC) and VDP tab (all eight
+      registers decoded, status, address latch). F12 opens; F5 pause/
+      continue, F7 step in, F8 step over, Shift+F8 step out. Refreshes only
+      while VISIBLE -- reading the machine costs real work and doing it
+      behind a hidden window would slow the emulator for nobody. Closing the
+      window RESUMES: leaving it paused behind a closed debugger looks
+      exactly like a hung emulator.
+      COLECO_OPEN_DEBUGGER=1 opens it at launch.
+
+  VERIFIED:
+
+  * debug_test (new): pause takes hold and the machine really stops (PC and
+    cycle count unchanged across 80 ms); a step advances it and it is paused
+    again; memory reads repeatably (a debugger read must not perturb
+    anything -- the property adamcore's commit flag exists for); the BIOS
+    disassembles; the built-in OS7 symbol table loads; breakpoints set, list
+    and clear; and after resume the machine is genuinely running again.
+  * The disassembler is right about real code, not just self-consistent: it
+    renders the BIOS reset vector as "LD SP,$73B9 / JP $006E", and $73B9 is
+    the documented ColecoVision stack top -- the same value the cartridge
+    firmware's swap-stub notes rely on.
+  * RAN AND PHOTOGRAPHED: the window shows live registers (PC in cart space,
+    the CONFIG client running), a following disassembly, and a memory view at
+    $0000 reading 31 B9 73 C3 6E 00 -- the same reset vector, in bytes.
+    Meanwhile the main window keeps running the CONFIG client at full speed,
+    which is the conditional-engagement claim holding.
+
+  NOT YET: the SGM/AY register pane and the cart-device pane (mailbox status
+  page, colmap plan and bank state) the plan calls for. The engine exposes
+  what they need; the panes are not written.
+
+
 Then
 ----
-  M6  debugger engine + Z80/VDP/SGM/cart panes
   M7  KDE frontend
   M8  CI: linux -> macOS -> Windows -> flatpak
   M9  macOS + Windows frontends, packaging, release
