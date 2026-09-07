@@ -166,11 +166,52 @@ regression gate on z80.c -- which none of this modified.
   branch is pushed, and drop -DADAMCORE_SRC from the build line.
 
 
+Done (this pass) -- M2: the mailbox cartridge device
+---------------------------------------------------
+
+  [x] core/coleco/fujinet_cart.{c,h} -- a C transposition of the firmware's
+      own MAME device (pico/coleco/emu/fujinet.cpp), the same relationship
+      astrocade-desktop's core/astro/fujinet_cart.c has to its MAME device.
+      Supplies only the fujimail_port_t callbacks; the protocol, the wire
+      codec and every cartridge mapper are the staged firmware sources,
+      compiled verbatim. std::vector becomes a small bytebuf; MAME's
+      side_effects_disabled() becomes adamcore_cart_ops' commit flag; the
+      image comes from the app rather than a MAME cart slot, and with no
+      image the baked-in CONFIG client is served exactly as the RP2040 does.
+  [x] The staged tree is wired into the build and links: fujimail, fujibus,
+      colmap and fujitcp all present in libcoleco_core.a alongside the device.
+
+  VERIFIED:
+
+  * core/tests/cart_test.c (new) drives the device through adamcore's bus
+    with a real Z80 instruction stream -- NOT by calling
+    fujimail_read_hotspot() directly, which is what the firmware's own
+    host_test does and what MAME's device does from the other side. This is
+    the layer neither covers, and the distinction is the point: every mailbox
+    touch is a cartridge READ whose ADDRESS is the payload, so a bus that
+    dispatched a read twice, or fired one for a debugger peek, or dropped the
+    commit flag would pass upstream's tests and fail here.
+    Passing on the first run: the CONFIG client served with 'F' 'N' magic,
+    proto version and the "FUJI" claim in place; a GET_ADAPTERCONFIG_EXTENDED
+    transaction launched entirely from LD A,(nn) instructions with ACKSEQ
+    echoing the sequence number; the link-down path reporting FN_ERR_NOLINK;
+    a debugger sweep of all three hotspot pages ($FD00-$FFFF, which through
+    the bus would arm registers, append TX bytes and attempt the ROM swap at
+    $FDFE) leaving ACKSEQ and the error byte untouched; an unpaired REGDATA
+    launching nothing; a repeated SEQ not relaunching but a fresh one doing
+    so; and an unsigned image running as a plain cartridge with the mailbox
+    dead and its bytes served verbatim.
+
+  * The firmware's own protocol suite still passes against the same sources
+    this repo stages (make -C pico/coleco/firmware/host_test): test_fujibus,
+    test_colmap, test_fujimail, test_busedge all green.
+
+  NOT YET DONE in M2: a live round trip against a real fujinet-pc. That is
+  M4, where the in-process runtime lands; cart_test deliberately points at a
+  dead port so it stays hermetic.
+
 Then
 ----
-
-  M2  StageFujiProto + core/coleco/fujinet_cart.c (transposed from
-      pico/coleco/emu/fujinet.cpp) + the test_fujimail cases ported
   M3  session layer + GNOME frontend, WITH_FUJINET=OFF
   M4  FujiNet end-to-end -- the long pole
   M5  keypad window + bindings.c + settings + media import + gamepad + audio
