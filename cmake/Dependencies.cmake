@@ -44,15 +44,19 @@ find_package(Git QUIET)
 set(ADAMCORE_COMMIT "611bfe4d0a6ac76166588ca674ba2d46d10d6bf4")
 set(ADAMCORE_URL "https://github.com/tschak909/adamcore")
 
-# fujinet-firmware, branch colecovision-bringup (844eb6f24). Contains the
+# fujinet-firmware, branch colecovision-bringup (902dd043f). Contains the
 # complete pico/coleco port: the mailbox protocol, all five cartridge mappers
 # in colmap.c, the baked-in CONFIG client, the MAME cart device, and the .col
 # media-type registration without which no cartridge in the No-Intro set
-# reaches MediaTypeROM. Recorded in three places -- here and in both flatpak
-# manifests (build-aux/flatpak/*.yml). The pinned commit has moved on the
-# server before in a sibling repo, so treat a failed fetch of this exact hash
-# as "the branch was rebased/merged", not as a network fault.
-set(FUJINET_COMMIT "844eb6f244e1d1cba3dacd1c0f78a5ab3d47f4ab")
+# reaches MediaTypeROM. As of this pin the baked client is the real
+# fujinet-config coleco/ port (WiFi setup, host rename, browse with filter,
+# copy, lobby, boot) rather than the bring-up stand-in, and COPY_FILE shares
+# MOUNT_IMAGE's 60-second transaction budget. Recorded in three places --
+# here and in both flatpak manifests (build-aux/flatpak/*.yml). The pinned
+# commit has moved on the server before in a sibling repo, so treat a failed
+# fetch of this exact hash as "the branch was rebased/merged", not as a
+# network fault.
+set(FUJINET_COMMIT "902dd043f061cbeed1b59e33e94a690e29df0a46")
 set(FUJINET_URL "https://github.com/FujiNetWIFI/fujinet-firmware")
 
 # coleco_provide_dependency(NAME <n> PATH <p> SENTINEL <file> OVERRIDE <VAR>

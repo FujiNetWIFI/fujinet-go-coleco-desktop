@@ -3,7 +3,7 @@ in it (just .keep and autorun.img), so tools/fujinet/build-fujinet-desktop.sh's
 collect_outputs() falls back to the generic distfiles/fnconfig.ini, which is
 Atari-flavoured (a host list of Atari community TNFS servers). Add the
 per-target default so a new install gets host slot 1 = SD, slot 2 =
-irata.online instead, matching the pattern the other BUILD_<TARGET>
+APPS.IRATA.ONLINE instead, matching the pattern the other BUILD_<TARGET>
 directories (e.g. BUILD_ADAM) already follow.
 
 diff --git a/data/webui/device_specific/BUILD_RS232/fnconfig.ini b/data/webui/device_specific/BUILD_RS232/fnconfig.ini
@@ -25,4 +25,4 @@ new file mode 100644
 +
 +[Host2]
 +type=TNFS
-+name=irata.online
++name=APPS.IRATA.ONLINE
