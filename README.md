@@ -16,7 +16,7 @@ there is marked done on "it compiles".
 |---|---|
 | **Emulator** | [adamcore](https://github.com/tschak909/adamcore), clean-room GPLv3. Z80 validated against Tom Harte's SingleStepTests and ZEXDOC/ZEXALL, TMS9928A VDP, SN76489, and the Opcode Super Game Module — which reaches **TEST COMPLETED!** on Óscar Toledo G.'s own `super_game_module_test.rom`. |
 | **FujiNet** | The cartridge device compiles the RP2040 firmware's own protocol sources verbatim and dials a real `fujinet-pc`, built in-process as `libfujinet`. Verified on the wire: `dev=70 cmd=F4 seq=1 → err=0 reply=06 rxlen=256 "SD"`. |
-| **Frontends** | GNOME (GTK4/libadwaita), KDE (Qt6 Widgets), macOS (AppKit), Windows (Win32/GDI) — each with the display, a two-controller keypad window, and a full Z80 + VDP debugger. |
+| **Frontends** | GNOME (GTK4/libadwaita), KDE (Qt6 Widgets), macOS (AppKit), Windows (Win32/GDI) — each with the display, a two-controller keypad window, a Preferences dialog, a live FujiNet console log, and a full Z80 + VDP debugger. |
 | **Packaging** | Per-frontend DEB/RPM/TGZ, two Flatpaks, a Windows zip and NSIS installer, and a macOS bundle (signed and notarised when the credentials are configured), all through GitHub Actions. |
 
 ## What it is
