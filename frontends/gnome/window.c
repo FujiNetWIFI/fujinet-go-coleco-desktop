@@ -15,6 +15,7 @@
 #include "window.h"
 
 #include "display.h"
+#include "fujilog.h"
 #include "prefs.h"
 #include "debugger/dbg_window.h"
 #include "keypad/keypad_window.h"
@@ -325,6 +326,15 @@ static void restart_session(ColecoWindow *self)
     push_toast(self, "Machine options applied (session restarted)");
 }
 
+static void action_fujinet_log(GSimpleAction *a, GVariant *p,
+                               gpointer user_data)
+{
+    ColecoWindow *self = user_data;
+    (void)a;
+    (void)p;
+    coleco_fujilog_show(GTK_WINDOW(self), self->session);
+}
+
 static void action_prefs(GSimpleAction *a, GVariant *p, gpointer user_data)
 {
     ColecoWindow *self = user_data;
@@ -362,6 +372,7 @@ static const GActionEntry win_actions[] = {
     { "debugger", action_debugger, NULL, NULL, NULL, { 0 } },
     { "import-bios", action_import_bios, NULL, NULL, NULL, { 0 } },
     { "fujinet-config", action_fujinet_config, NULL, NULL, NULL, { 0 } },
+    { "fujinet-log", action_fujinet_log, NULL, NULL, NULL, { 0 } },
     { "prefs", action_prefs, NULL, NULL, NULL, { 0 } },
     { "tv-aspect", action_aspect, NULL, "true", NULL, { 0 } },
     { "smooth", action_smooth, NULL, "false", NULL, { 0 } },
@@ -391,6 +402,7 @@ static GMenu *build_menu(void)
     g_menu_append_section(menu, NULL, G_MENU_MODEL(view));
 
     g_menu_append(fuji, "FujiNet _Configuration", "win.fujinet-config");
+    g_menu_append(fuji, "Console _Log", "win.fujinet-log");
     g_menu_append_section(menu, NULL, G_MENU_MODEL(fuji));
 
     g_menu_append(app, "_Preferences", "win.prefs");

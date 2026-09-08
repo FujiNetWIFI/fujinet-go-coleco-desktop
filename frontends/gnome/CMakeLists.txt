@@ -23,6 +23,7 @@ add_executable(fujinet-go-coleco-gnome
   window.c
   display.c
   prefs.c
+  fujilog.c
   keypad/keypad_window.c
   debugger/dbg_window.c
 )

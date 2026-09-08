@@ -17,6 +17,7 @@
 #include <QDropEvent>
 #include <QFileDialog>
 
+#include "FujiNetLogWindow.h"
 #include "SettingsDialog.h"
 #include <QMenuBar>
 #include <QMessageBox>
@@ -140,6 +141,8 @@ void MainWindow::buildMenus()
         QDesktopServices::openUrl(QUrl(QString::fromUtf8(
             colecosession_fujinet_webui_url(m_session))));
     });
+    fuji->addAction(QStringLiteral("Console &Log"), this,
+                    [this] { fujinet_log_show(this, m_session); });
 }
 
 void MainWindow::showSettings()

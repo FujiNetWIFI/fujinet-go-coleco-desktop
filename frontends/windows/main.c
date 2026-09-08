@@ -177,6 +177,7 @@ static void build_menu(HWND hwnd)
     AppendMenu(view, MF_STRING, IDM_SMOOTH, "&Smooth Scaling");
 
     AppendMenu(fuji, MF_STRING, IDM_FUJINET_CONFIG, "&Configuration");
+    AppendMenu(fuji, MF_STRING, IDM_FUJINET_LOG, "Console &Log");
 
     AppendMenu(bar, MF_POPUP, (UINT_PTR)machine, "&Machine");
     AppendMenu(bar, MF_POPUP, (UINT_PTR)view, "&View");
@@ -404,6 +405,128 @@ static void show_settings(HINSTANCE inst)
     ShowWindow(g_settings_window, SW_SHOW);
 }
 
+/* ---- FujiNet console log ---------------------------------------------------
+ *
+ * A live view of the in-process runtime's captured output. This project is a
+ * protocol bring-up as much as an emulator -- the cartridge dials into the
+ * FujiNet and every transaction is logged -- so being able to watch that
+ * without leaving the app is the difference between "it does not work" and
+ * knowing which command failed.
+ */
+
+static HWND g_log_window;
+static HWND g_log_edit;
+
+static void log_refresh(void)
+{
+    /* Static: the ring is large and this runs once a second. */
+    static char buf[128 * 1024];
+    int n;
+    DWORD first, last, lines;
+
+    if (!g_log_edit) return;
+
+    /* Follow the tail only while the reader is already at the bottom --
+     * scrolling up to read something must not be yanked away a second
+     * later. EM_GETFIRSTVISIBLELINE plus the visible height is the only way
+     * an EDIT control will tell you that. */
+    first = (DWORD)SendMessageA(g_log_edit, EM_GETFIRSTVISIBLELINE, 0, 0);
+    lines = (DWORD)SendMessageA(g_log_edit, EM_GETLINECOUNT, 0, 0);
+    {
+        RECT rc;
+        HDC dc = GetDC(g_log_edit);
+        TEXTMETRICA tm;
+        int visible = 1;
+        GetClientRect(g_log_edit, &rc);
+        if (dc) {
+            HFONT of = (HFONT)SelectObject(
+                dc, (HGDIOBJ)SendMessageA(g_log_edit, WM_GETFONT, 0, 0));
+            if (GetTextMetricsA(dc, &tm) && tm.tmHeight > 0)
+                visible = (rc.bottom - rc.top) / tm.tmHeight;
+            SelectObject(dc, of);
+            ReleaseDC(g_log_edit, dc);
+        }
+        last = first + (DWORD)(visible > 0 ? visible : 1);
+    }
+
+    n = colecosession_fujinet_copy_log(g_session, buf, sizeof buf);
+    SetWindowTextA(g_log_edit, n > 0 ? buf : "(no FujiNet output yet)");
+
+    if (last >= lines) {
+        int len = GetWindowTextLengthA(g_log_edit);
+        SendMessageA(g_log_edit, EM_SETSEL, (WPARAM)len, (LPARAM)len);
+        SendMessageA(g_log_edit, EM_SCROLLCARET, 0, 0);
+    }
+}
+
+static LRESULT CALLBACK log_proc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp)
+{
+    switch (msg) {
+    case WM_SIZE: {
+        RECT rc;
+        GetClientRect(hwnd, &rc);
+        if (g_log_edit)
+            MoveWindow(g_log_edit, 0, 0, rc.right - rc.left,
+                       rc.bottom - rc.top, TRUE);
+        return 0;
+    }
+    case WM_TIMER:
+        if (wp == IDT_LOG_REFRESH) log_refresh();
+        return 0;
+    case WM_CLOSE:
+        DestroyWindow(hwnd);
+        return 0;
+    case WM_DESTROY:
+        KillTimer(hwnd, IDT_LOG_REFRESH);
+        g_log_window = NULL;
+        g_log_edit = NULL;
+        return 0;
+    }
+    return DefWindowProcA(hwnd, msg, wp, lp);
+}
+
+static void show_fujinet_log(HINSTANCE inst)
+{
+    RECT rc;
+
+    if (g_log_window) {
+        SetForegroundWindow(g_log_window);
+        return;
+    }
+    {
+        static int registered;
+        if (!registered) {
+            WNDCLASSA wc;
+            memset(&wc, 0, sizeof(wc));
+            wc.lpfnWndProc = log_proc;
+            wc.hInstance = inst;
+            wc.hCursor = LoadCursor(NULL, IDC_ARROW);
+            wc.hbrBackground = (HBRUSH)(COLOR_BTNFACE + 1);
+            wc.lpszClassName = "ColecoFujiNetLogWindow";
+            RegisterClassA(&wc);
+            registered = 1;
+        }
+    }
+    g_log_window = CreateWindowA("ColecoFujiNetLogWindow",
+                                 "FujiNet Console Log", WS_OVERLAPPEDWINDOW,
+                                 CW_USEDEFAULT, CW_USEDEFAULT, 860, 600, NULL,
+                                 NULL, inst, NULL);
+    GetClientRect(g_log_window, &rc);
+    g_log_edit = CreateWindowExA(
+        WS_EX_CLIENTEDGE, "EDIT", "",
+        WS_CHILD | WS_VISIBLE | WS_VSCROLL | WS_HSCROLL | ES_MULTILINE |
+            ES_AUTOVSCROLL | ES_READONLY,
+        0, 0, rc.right - rc.left, rc.bottom - rc.top, g_log_window,
+        (HMENU)(INT_PTR)IDC_LOG_EDIT, inst, NULL);
+    /* A fixed-pitch font: the runtime's output is timestamped columns. */
+    SendMessageA(g_log_edit, WM_SETFONT,
+                 (WPARAM)GetStockObject(ANSI_FIXED_FONT), TRUE);
+
+    SetTimer(g_log_window, IDT_LOG_REFRESH, 1000, NULL);
+    log_refresh();
+    ShowWindow(g_log_window, SW_SHOW);
+}
+
 /* ---- window --------------------------------------------------------------- */
 
 static LRESULT CALLBACK wndproc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp)
@@ -496,6 +619,9 @@ static LRESULT CALLBACK wndproc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp)
         }
         case IDM_SETTINGS:
             show_settings((HINSTANCE)GetWindowLongPtr(hwnd, GWLP_HINSTANCE));
+            return 0;
+        case IDM_FUJINET_LOG:
+            show_fujinet_log((HINSTANCE)GetWindowLongPtr(hwnd, GWLP_HINSTANCE));
             return 0;
         case IDM_FUJINET_CONFIG:
             if (!colecosession_fujinet_running(g_session)) {

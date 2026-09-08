@@ -25,3 +25,7 @@
 #define IDC_SET_AUDIO      2005
 #define IDC_SET_GAMEPAD    2006
 #define IDC_SET_NOTE       2007
+
+#define IDM_FUJINET_LOG    1021
+#define IDC_LOG_EDIT       2100
+#define IDT_LOG_REFRESH    1

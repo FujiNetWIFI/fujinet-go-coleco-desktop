@@ -29,6 +29,7 @@ add_executable(fujinet-go-coleco-kde
   KeypadWindow.cpp
   KeyForward.cpp
   SettingsDialog.cpp
+  FujiNetLogWindow.cpp
   debugger/DebuggerWindow.cpp
 )
 target_link_libraries(fujinet-go-coleco-kde PRIVATE coleco_session Qt6::Widgets)

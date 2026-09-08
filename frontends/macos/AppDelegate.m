@@ -82,6 +82,9 @@
     NSTimer *_statusTimer;
     NSWindow *_settingsWindow;
     BOOL _sessionDirty;
+    NSWindow *_logWindow;
+    NSTextView *_logView;
+    NSTimer *_logTimer;
 }
 
 - (instancetype)initWithSession:(colecosession *)session
@@ -252,6 +255,9 @@
     NSMenu *fuji = [[NSMenu alloc] initWithTitle:@"FujiNet"];
     [[fuji addItemWithTitle:@"Configuration" action:@selector(openWebUI:)
               keyEquivalent:@""] setTarget:self];
+    [[fuji addItemWithTitle:@"Console Log"
+                     action:@selector(showFujiNetLog:)
+              keyEquivalent:@""] setTarget:self];
     [fujiItem setSubmenu:fuji];
     [bar addItem:fujiItem];
 
@@ -397,6 +403,12 @@
 
 - (void)windowWillClose:(NSNotification *)note
 {
+    if (note.object == _logWindow) {
+        /* Otherwise the timer keeps firing against a hidden view forever. */
+        [_logTimer invalidate];
+        _logTimer = nil;
+        return;
+    }
     if (note.object != _settingsWindow || !_sessionDirty)
         return;
     _sessionDirty = NO;
@@ -509,6 +521,79 @@
     [item setState:(on ? NSControlStateValueOn : NSControlStateValueOff)];
     [_display setSmooth:on];
     colecosession_set_int(_session, "smooth", on ? 1 : 0);
+}
+
+/* ---- FujiNet console log ---------------------------------------------------
+ *
+ * A live view of the in-process runtime's captured output. This project is a
+ * protocol bring-up as much as an emulator -- the cartridge dials into the
+ * FujiNet and every transaction is logged -- so being able to watch that
+ * without leaving the app is the difference between "it does not work" and
+ * knowing which command failed.
+ */
+
+- (void)refreshLog:(NSTimer *)timer
+{
+    (void)timer;
+    /* Static: the ring is large and this runs once a second. */
+    static char buf[128 * 1024];
+    const int n = colecosession_fujinet_copy_log(_session, buf, sizeof buf);
+    NSScrollView *scroll = (NSScrollView *)_logView.enclosingScrollView;
+    /* Follow the tail only while the reader is already at the bottom;
+     * scrolling up to read something must not be yanked away a second
+     * later. */
+    const BOOL atEnd =
+        !scroll || (NSMaxY(scroll.contentView.documentVisibleRect) >=
+                    NSMaxY(((NSView *)scroll.documentView).frame) - 4.0);
+
+    [_logView setString:(n > 0 ? [NSString stringWithUTF8String:buf]
+                               : @"(no FujiNet output yet)")];
+    if (atEnd)
+        [_logView scrollRangeToVisible:NSMakeRange(_logView.string.length, 0)];
+}
+
+- (void)showFujiNetLog:(id)sender
+{
+    (void)sender;
+    if (_logWindow) {
+        [_logWindow makeKeyAndOrderFront:nil];
+        return;
+    }
+
+    NSScrollView *scroll =
+        [[NSScrollView alloc] initWithFrame:NSMakeRect(0, 0, 820, 560)];
+    scroll.hasVerticalScroller = YES;
+    scroll.autohidesScrollers = NO;
+
+    _logView = [[NSTextView alloc] initWithFrame:scroll.bounds];
+    _logView.editable = NO;
+    _logView.richText = NO;
+    _logView.font = [NSFont monospacedSystemFontOfSize:11
+                                                weight:NSFontWeightRegular];
+    _logView.autoresizingMask = NSViewWidthSizable;
+    scroll.documentView = _logView;
+
+    _logWindow = [[NSWindow alloc]
+        initWithContentRect:NSMakeRect(0, 0, 820, 560)
+                  styleMask:NSWindowStyleMaskTitled |
+                            NSWindowStyleMaskClosable |
+                            NSWindowStyleMaskMiniaturizable |
+                            NSWindowStyleMaskResizable
+                    backing:NSBackingStoreBuffered
+                      defer:NO];
+    _logWindow.title = @"FujiNet Console Log";
+    _logWindow.releasedWhenClosed = NO;
+    _logWindow.delegate = self;
+    _logWindow.contentView = scroll;
+    [_logWindow center];
+
+    _logTimer = [NSTimer scheduledTimerWithTimeInterval:1.0
+                                                 target:self
+                                               selector:@selector(refreshLog:)
+                                               userInfo:nil
+                                                repeats:YES];
+    [self refreshLog:nil];
+    [_logWindow makeKeyAndOrderFront:nil];
 }
 
 - (void)openWebUI:(id)sender
