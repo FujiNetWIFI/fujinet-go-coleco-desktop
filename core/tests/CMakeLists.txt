@@ -46,6 +46,18 @@ target_link_libraries(media_test coleco_session)
 add_test(NAME media COMMAND media_test "${CMAKE_SOURCE_DIR}/tools/roms")
 
 # The debugger engine against a real running machine. Skips without a BIOS.
+# Neither of these needs a ROM: dasm_test drives the disassembler on
+# hand-written byte sequences, and vdp_decode_test builds VDP snapshots in
+# memory. So unlike debug_test they always run rather than SKIP.
+add_executable(dasm_test dasm_test.c)
+target_link_libraries(dasm_test coleco_session)
+target_include_directories(dasm_test PRIVATE "${CMAKE_SOURCE_DIR}/core/debugger")
+add_test(NAME dasm COMMAND dasm_test)
+
+add_executable(vdp_decode_test vdp_decode_test.c)
+target_link_libraries(vdp_decode_test coleco_session)
+add_test(NAME vdp_decode COMMAND vdp_decode_test)
+
 add_executable(debug_test debug_test.c)
 target_link_libraries(debug_test coleco_session)
 add_test(NAME debug COMMAND debug_test "${CMAKE_SOURCE_DIR}/tools/roms")
@@ -67,7 +79,8 @@ endif() # TARGET coleco_session
 if(WIN32)
   # cart_test is conditional on the ROMs being available, hence the guard.
   foreach(_t no_sdl_link_test cart_test boot_smoke input_test session_test
-             bindings_test media_test debug_test gamepad_probe)
+             bindings_test media_test debug_test dasm_test vdp_decode_test
+             gamepad_probe)
     if(TARGET ${_t})
       target_link_options(${_t} PRIVATE -static -static-libgcc -static-libstdc++)
     endif()
