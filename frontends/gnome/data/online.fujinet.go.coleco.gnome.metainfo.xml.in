@@ -44,7 +44,28 @@
     </screenshot>
   </screenshots>
   <releases>
+    <!-- The CURRENT release templates its version from @PROJECT_VERSION@, so
+         it cannot disagree with the tree; past releases are literal. The
+         release job checks that this first entry is still a template. -->
     <release version="@PROJECT_VERSION@" date="2026-09-07">
+      <description>
+        <p>
+          Preferences in every frontend: the Super Game Module, palette,
+          controller button swap, FujiNet, audio and gamepads are now
+          settable from the application rather than only from the
+          configuration file.
+        </p>
+        <p>
+          A live FujiNet console log window, so the cartridge link and its
+          transactions can be watched without leaving the application.
+        </p>
+        <p>
+          Windows gains an installer, and the macOS bundle now carries the
+          FujiNet runtime where the application actually looks for it.
+        </p>
+      </description>
+    </release>
+    <release version="0.1.0" date="2026-09-07">
       <description>
         <p>First release.</p>
       </description>
