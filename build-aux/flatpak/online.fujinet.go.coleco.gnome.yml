@@ -90,7 +90,12 @@ modules:
         path: ../..
         skip:
           - .flatpak-builder
+          # Every build directory .gitignore's "build*/" covers. `type: dir`
+          # takes the working tree INCLUDING gitignored files, and skip does
+          # not glob, so each one has to be named -- build-kde was the one
+          # that was missing.
           - build
+          - build-kde
           - build-flatpak
           - build-flatpak-kde
           # Both provisioned trees: they come from the pinned sources below,
