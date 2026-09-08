@@ -35,6 +35,8 @@ private:
     void updateStatus();
     void loadMedia(const QString &path);
     void toggleKeypad();
+    void showSettings();
+    void restartSession();
 
     colecosession *m_session;
     DisplayWidget *m_display = nullptr;

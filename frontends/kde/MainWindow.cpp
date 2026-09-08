@@ -16,6 +16,8 @@
 #include <QDragEnterEvent>
 #include <QDropEvent>
 #include <QFileDialog>
+
+#include "SettingsDialog.h"
 #include <QMenuBar>
 #include <QMessageBox>
 #include <QMimeData>
@@ -97,6 +99,14 @@ void MainWindow::buildMenus()
                 QStringLiteral("BIOS imported. Restart to boot it."), 5000);
     });
     machine->addSeparator();
+    /* Ctrl+comma spelled out rather than QKeySequence::Preferences: that
+     * standard key is empty on X11/Wayland (it is a macOS binding), so the
+     * menu item would have shown no shortcut and the accelerator would
+     * simply never have fired. */
+    machine->addAction(QStringLiteral("&Preferences..."),
+                       QKeySequence(Qt::CTRL | Qt::Key_Comma), this,
+                       &MainWindow::showSettings);
+    machine->addSeparator();
     machine->addAction(QStringLiteral("&Quit"), this, [this] { close(); });
 
     QMenu *view = menuBar()->addMenu(QStringLiteral("&View"));
@@ -130,6 +140,31 @@ void MainWindow::buildMenus()
         QDesktopServices::openUrl(QUrl(QString::fromUtf8(
             colecosession_fujinet_webui_url(m_session))));
     });
+}
+
+void MainWindow::showSettings()
+{
+    if (SettingsDialog::run(this, m_session))
+        restartSession();
+}
+
+/* Stop, re-read the settings store, start. Every option the Preferences
+ * dialog writes is read by colecosession_default_opts(), so this is the only
+ * way any of them can take effect. */
+void MainWindow::restartSession()
+{
+    colecosession_start_opts o;
+    colecosession_settings_flush(m_session);
+    colecosession_default_opts(m_session, &o);
+    colecosession_stop(m_session);
+    if (colecosession_start(m_session, &o) != 0) {
+        QMessageBox::warning(
+            this, QStringLiteral("Restart failed"),
+            QString::fromUtf8(colecosession_last_error(m_session)));
+        return;
+    }
+    statusBar()->showMessage(
+        QStringLiteral("Machine options applied (session restarted)"), 5000);
 }
 
 void MainWindow::toggleKeypad()
