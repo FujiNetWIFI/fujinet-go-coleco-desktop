@@ -80,6 +80,8 @@
     ColecoContentView *_content;
     NSTextField *_status;
     NSTimer *_statusTimer;
+    NSWindow *_settingsWindow;
+    BOOL _sessionDirty;
 }
 
 - (instancetype)initWithSession:(colecosession *)session
@@ -122,7 +124,7 @@
     [self buildMenu];
     [_window makeKeyAndOrderFront:nil];
     [_window makeFirstResponder:_content];
-    [_window setDelegate:(id<NSWindowDelegate>)self];
+    [_window setDelegate:self];
     [_window registerForDraggedTypes:@[NSPasteboardTypeFileURL]];
 
     colecosession_start_opts opts;
@@ -198,6 +200,10 @@
                        action:@selector(orderFrontStandardAboutPanel:)
                 keyEquivalent:@""];
     [appMenu addItem:[NSMenuItem separatorItem]];
+    /* Command-comma, where every Mac application puts its settings. */
+    [[appMenu addItemWithTitle:@"Settings…" action:@selector(showSettings:)
+                 keyEquivalent:@","] setTarget:self];
+    [appMenu addItem:[NSMenuItem separatorItem]];
     [appMenu addItemWithTitle:@"Quit" action:@selector(terminate:)
                 keyEquivalent:@"q"];
     [appItem setSubmenu:appMenu];
@@ -250,6 +256,156 @@
     [bar addItem:fujiItem];
 
     [NSApp setMainMenu:bar];
+}
+
+/* ---- settings ------------------------------------------------------------
+ *
+ * Every option here is read by colecosession_default_opts() when the session
+ * starts, so none of them can apply mid-run. Changes are written to the
+ * shared settings store as they are made (which is what lets the GNOME, KDE
+ * and Windows frontends see the same configuration) and collected into ONE
+ * session restart when the window closes -- restarting on each click would
+ * tear the machine down under someone still deciding.
+ */
+
+- (NSTextField *)sectionLabel:(NSString *)title
+{
+    NSTextField *label = [NSTextField labelWithString:title];
+    label.font = [NSFont boldSystemFontOfSize:NSFont.systemFontSize];
+    return label;
+}
+
+- (NSPopUpButton *)popUpForKey:(const char *)key
+                      fallback:(int)def
+                         items:(NSArray<NSString *> *)items
+{
+    NSPopUpButton *popup = [[NSPopUpButton alloc] init];
+    [popup addItemsWithTitles:items];
+    NSInteger current = colecosession_get_int(_session, key, def);
+    if (current < 0 || current >= (NSInteger)items.count)
+        current = def;
+    [popup selectItemAtIndex:current];
+    popup.identifier = @(key);
+    popup.target = self;
+    popup.action = @selector(settingChanged:);
+    return popup;
+}
+
+- (NSButton *)checkBoxForKey:(const char *)key fallback:(int)def
+{
+    NSButton *box = [NSButton checkboxWithTitle:@""
+                                         target:self
+                                         action:@selector(settingChanged:)];
+    box.state = colecosession_get_int(_session, key, def)
+                    ? NSControlStateValueOn
+                    : NSControlStateValueOff;
+    box.identifier = @(key);
+    return box;
+}
+
+- (void)settingChanged:(id)sender
+{
+    NSControl *control = sender;
+    NSString *key = control.identifier;
+    int value;
+
+    if ([control isKindOfClass:[NSPopUpButton class]])
+        value = (int)((NSPopUpButton *)control).indexOfSelectedItem;
+    else
+        value = ((NSButton *)control).state == NSControlStateValueOn ? 1 : 0;
+
+    colecosession_set_int(_session, [key UTF8String], value);
+    _sessionDirty = YES;
+}
+
+- (void)showSettings:(id)sender
+{
+    (void)sender;
+    if (_settingsWindow) {
+        [_settingsWindow makeKeyAndOrderFront:nil];
+        return;
+    }
+
+    NSArray<NSArray<NSView *> *> *rows = @[
+        @[ [self sectionLabel:@"Machine"], [NSTextField labelWithString:@""] ],
+        @[
+            [NSTextField labelWithString:@"Super Game Module"],
+            [self checkBoxForKey:"sgm" fallback:1]
+        ],
+        @[
+            [NSTextField labelWithString:@"Palette"],
+            [self popUpForKey:"palette"
+                     fallback:0
+                        items:@[
+                            @"Default (TMS9928A)", @"Palette 2", @"Palette 3",
+                            @"Palette 4"
+                        ]]
+        ],
+        @[
+            [NSTextField labelWithString:@"Swap controller buttons"],
+            [self checkBoxForKey:"swap_buttons" fallback:0]
+        ],
+        @[ [self sectionLabel:@"FujiNet"], [NSTextField labelWithString:@""] ],
+        @[
+            [NSTextField labelWithString:@"Enable FujiNet"],
+            [self checkBoxForKey:"enable_fujinet" fallback:1]
+        ],
+        @[ [self sectionLabel:@"Host"], [NSTextField labelWithString:@""] ],
+        @[
+            [NSTextField labelWithString:@"Audio"],
+            [self checkBoxForKey:"enable_audio" fallback:1]
+        ],
+        @[
+            [NSTextField labelWithString:@"Gamepads"],
+            [self checkBoxForKey:"enable_gamepad" fallback:1]
+        ],
+    ];
+
+    NSGridView *grid = [NSGridView gridViewWithViews:rows];
+    grid.rowSpacing = 8;
+    grid.columnSpacing = 12;
+    [grid columnAtIndex:0].xPlacement = NSGridCellPlacementTrailing;
+
+    NSTextField *note = [NSTextField
+        labelWithString:@"Applied by restarting the session when this window "
+                        @"is closed."];
+    note.font = [NSFont systemFontOfSize:NSFont.smallSystemFontSize];
+    note.textColor = NSColor.secondaryLabelColor;
+
+    NSStackView *root = [NSStackView stackViewWithViews:@[ grid, note ]];
+    root.orientation = NSUserInterfaceLayoutOrientationVertical;
+    root.alignment = NSLayoutAttributeLeading;
+    root.spacing = 12;
+    root.edgeInsets = NSEdgeInsetsMake(16, 16, 16, 16);
+
+    _settingsWindow = [[NSWindow alloc]
+        initWithContentRect:NSMakeRect(0, 0, 440, 330)
+                  styleMask:NSWindowStyleMaskTitled |
+                            NSWindowStyleMaskClosable |
+                            NSWindowStyleMaskMiniaturizable
+                    backing:NSBackingStoreBuffered
+                      defer:NO];
+    _settingsWindow.title = @"Settings";
+    /* Not released on close: reopening keeps the window's position, and the
+     * delegate below still needs to be able to identify it. */
+    _settingsWindow.releasedWhenClosed = NO;
+    _settingsWindow.delegate = self;
+    _settingsWindow.contentView = root;
+    [_settingsWindow center];
+    [_settingsWindow makeKeyAndOrderFront:nil];
+}
+
+- (void)windowWillClose:(NSNotification *)note
+{
+    if (note.object != _settingsWindow || !_sessionDirty)
+        return;
+    _sessionDirty = NO;
+
+    colecosession_start_opts o;
+    colecosession_settings_flush(_session);
+    colecosession_default_opts(_session, &o);
+    colecosession_stop(_session);
+    colecosession_start(_session, &o);
 }
 
 /* ---- actions ------------------------------------------------------------- */

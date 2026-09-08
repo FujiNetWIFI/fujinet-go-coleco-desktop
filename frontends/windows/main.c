@@ -128,6 +128,20 @@ static void paint(HDC dc)
 
 /* ---- input ---------------------------------------------------------------- */
 
+/* Stop, re-read the settings store, start. Everything the settings window
+ * writes is read by colecosession_default_opts(), so this is the only way
+ * any of it can take effect. */
+static void restart_session(void)
+{
+    colecosession_start_opts o;
+    colecosession_settings_flush(g_session);
+    colecosession_default_opts(g_session, &o);
+    colecosession_stop(g_session);
+    if (colecosession_start(g_session, &o) != 0)
+        MessageBox(g_hwnd, colecosession_last_error(g_session),
+                   "Could not start", MB_ICONWARNING | MB_OK);
+}
+
 static void push_input(void)
 {
     colecosession_joystick_raw(g_session, 0, coleco_input_word(&g_input, 0));
@@ -150,6 +164,9 @@ static void build_menu(HWND hwnd)
     AppendMenu(machine, MF_STRING, IDM_RESET_CONFIG, "Reset to &CONFIG");
     AppendMenu(machine, MF_SEPARATOR, 0, NULL);
     AppendMenu(machine, MF_STRING, IDM_IMPORT_BIOS, "&Import BIOS...");
+    AppendMenu(machine, MF_SEPARATOR, 0, NULL);
+    AppendMenu(machine, MF_SEPARATOR, 0, NULL);
+    AppendMenu(machine, MF_STRING, IDM_SETTINGS, "&Settings...");
     AppendMenu(machine, MF_SEPARATOR, 0, NULL);
     AppendMenu(machine, MF_STRING, IDM_EXIT, "E&xit");
 
@@ -183,14 +200,7 @@ static void load_media(const char *path)
     }
     colecosession_set_str(g_session, "cart_path", dest);
     colecosession_settings_flush(g_session);
-    {
-        colecosession_start_opts o;
-        colecosession_default_opts(g_session, &o);
-        colecosession_stop(g_session);
-        if (colecosession_start(g_session, &o) != 0)
-            MessageBox(g_hwnd, colecosession_last_error(g_session),
-                       "Could not start", MB_ICONWARNING | MB_OK);
-    }
+    restart_session();
 }
 
 static void pick_file(const char *title, const char *filter, int is_bios)
@@ -218,6 +228,180 @@ static void pick_file(const char *title, const char *filter, int is_bios)
     } else {
         load_media(path);
     }
+}
+
+/* ---- settings window -------------------------------------------------------
+ *
+ * Same six machine options, the same keys and the same defaults as the GNOME
+ * Preferences dialog, so a machine configured in one frontend comes up the
+ * same in another -- they share one settings store. Every one of them is read
+ * by colecosession_default_opts() at session start, so all of them are
+ * applied by restarting the session when this window closes; doing it per
+ * click would rebuild the machine under someone still deciding. The display
+ * options (TV aspect, smooth scaling) apply live and stay in the View menu.
+ */
+
+static HWND g_settings_window;
+static int g_settings_dirty;
+
+static void settings_apply_checkbox(HWND hwnd, int id, const char *key,
+                                    int def)
+{
+    int on = SendMessageA(GetDlgItem(hwnd, id), BM_GETCHECK, 0, 0) ==
+             BST_CHECKED;
+    if (colecosession_get_int(g_session, key, def) != on) {
+        colecosession_set_int(g_session, key, on);
+        g_settings_dirty = 1;
+    }
+}
+
+static LRESULT CALLBACK settings_proc(HWND hwnd, UINT msg, WPARAM wp,
+                                      LPARAM lp)
+{
+    switch (msg) {
+    case WM_COMMAND:
+        switch (LOWORD(wp)) {
+        case IDC_SET_PALETTE:
+            if (HIWORD(wp) == CBN_SELCHANGE) {
+                int sel = (int)SendMessageA(GetDlgItem(hwnd, IDC_SET_PALETTE),
+                                            CB_GETCURSEL, 0, 0);
+                if (colecosession_get_int(g_session, "palette", 0) != sel) {
+                    colecosession_set_int(g_session, "palette", sel);
+                    g_settings_dirty = 1;
+                }
+            }
+            return 0;
+        case IDC_SET_SGM:
+            settings_apply_checkbox(hwnd, IDC_SET_SGM, "sgm", 1);
+            return 0;
+        case IDC_SET_SWAP:
+            settings_apply_checkbox(hwnd, IDC_SET_SWAP, "swap_buttons", 0);
+            return 0;
+        case IDC_SET_FUJINET:
+            settings_apply_checkbox(hwnd, IDC_SET_FUJINET, "enable_fujinet", 1);
+            return 0;
+        case IDC_SET_AUDIO:
+            settings_apply_checkbox(hwnd, IDC_SET_AUDIO, "enable_audio", 1);
+            return 0;
+        case IDC_SET_GAMEPAD:
+            settings_apply_checkbox(hwnd, IDC_SET_GAMEPAD, "enable_gamepad", 1);
+            return 0;
+        default:
+            break;
+        }
+        break;
+    case WM_CLOSE:
+        DestroyWindow(hwnd);
+        return 0;
+    case WM_DESTROY:
+        g_settings_window = NULL;
+        if (g_settings_dirty) {
+            g_settings_dirty = 0;
+            restart_session();
+        }
+        return 0;
+    }
+    return DefWindowProcA(hwnd, msg, wp, lp);
+}
+
+static HWND settings_checkbox(HWND parent, HINSTANCE inst, const char *text,
+                              int id, int y, int checked)
+{
+    HWND h = CreateWindowExA(0, "BUTTON", text,
+                             WS_CHILD | WS_VISIBLE | BS_AUTOCHECKBOX, 16, y,
+                             340, 22, parent, (HMENU)(INT_PTR)id, inst, NULL);
+    SendMessageA(h, BM_SETCHECK, checked ? BST_CHECKED : BST_UNCHECKED, 0);
+    SendMessageA(h, WM_SETFONT, (WPARAM)GetStockObject(DEFAULT_GUI_FONT), TRUE);
+    return h;
+}
+
+static void settings_label(HWND parent, HINSTANCE inst, const char *text,
+                           int y, int h)
+{
+    HWND w = CreateWindowExA(0, "STATIC", text, WS_CHILD | WS_VISIBLE, 16, y,
+                             360, h, parent, NULL, inst, NULL);
+    SendMessageA(w, WM_SETFONT, (WPARAM)GetStockObject(DEFAULT_GUI_FONT), TRUE);
+}
+
+static void show_settings(HINSTANCE inst)
+{
+    /* Same order as every other frontend: the index is what goes into the
+     * shared settings store. */
+    static const char *const palette_names[] = {
+        "Default (TMS9928A)", "Palette 2", "Palette 3", "Palette 4"
+    };
+    HFONT font = (HFONT)GetStockObject(DEFAULT_GUI_FONT);
+    HWND combo;
+    int y = 12, i;
+
+    if (g_settings_window) {
+        SetForegroundWindow(g_settings_window);
+        return;
+    }
+    {
+        static int registered;
+        if (!registered) {
+            WNDCLASSA wc;
+            memset(&wc, 0, sizeof(wc));
+            wc.lpfnWndProc = settings_proc;
+            wc.hInstance = inst;
+            wc.hCursor = LoadCursor(NULL, IDC_ARROW);
+            wc.hbrBackground = (HBRUSH)(COLOR_BTNFACE + 1);
+            wc.lpszClassName = "ColecoSettingsWindow";
+            RegisterClassA(&wc);
+            registered = 1;
+        }
+    }
+    g_settings_window = CreateWindowA(
+        "ColecoSettingsWindow", "Settings",
+        WS_OVERLAPPEDWINDOW & ~(WS_MAXIMIZEBOX | WS_THICKFRAME),
+        CW_USEDEFAULT, CW_USEDEFAULT, 400, 340, NULL, NULL, inst, NULL);
+
+    settings_label(g_settings_window, inst, "Machine", y, 18);
+    y += 24;
+    settings_checkbox(g_settings_window, inst, "Super Game Module (Opcode SGM)",
+                      IDC_SET_SGM, y,
+                      colecosession_get_int(g_session, "sgm", 1));
+    y += 28;
+
+    settings_label(g_settings_window, inst, "Palette:", y + 3, 18);
+    combo = CreateWindowExA(
+        0, "COMBOBOX", "",
+        WS_CHILD | WS_VISIBLE | CBS_DROPDOWNLIST | WS_VSCROLL, 90, y, 250, 200,
+        g_settings_window, (HMENU)(INT_PTR)IDC_SET_PALETTE, inst, NULL);
+    for (i = 0; i < (int)(sizeof(palette_names) / sizeof(palette_names[0])); i++)
+        SendMessageA(combo, CB_ADDSTRING, 0, (LPARAM)palette_names[i]);
+    SendMessageA(combo, CB_SETCURSEL,
+                 (WPARAM)colecosession_get_int(g_session, "palette", 0), 0);
+    SendMessageA(combo, WM_SETFONT, (WPARAM)font, TRUE);
+    y += 32;
+
+    settings_checkbox(g_settings_window, inst, "Swap controller buttons",
+                      IDC_SET_SWAP, y,
+                      colecosession_get_int(g_session, "swap_buttons", 0));
+    y += 34;
+
+    settings_label(g_settings_window, inst, "FujiNet", y, 18);
+    y += 24;
+    settings_checkbox(g_settings_window, inst, "Enable FujiNet",
+                      IDC_SET_FUJINET, y,
+                      colecosession_get_int(g_session, "enable_fujinet", 1));
+    y += 34;
+
+    settings_label(g_settings_window, inst, "Host", y, 18);
+    y += 24;
+    settings_checkbox(g_settings_window, inst, "Audio", IDC_SET_AUDIO, y,
+                      colecosession_get_int(g_session, "enable_audio", 1));
+    y += 28;
+    settings_checkbox(g_settings_window, inst, "Gamepads", IDC_SET_GAMEPAD, y,
+                      colecosession_get_int(g_session, "enable_gamepad", 1));
+    y += 32;
+
+    settings_label(g_settings_window, inst,
+                   "Applied by restarting the session when this window "
+                   "closes.", y, 32);
+
+    ShowWindow(g_settings_window, SW_SHOW);
 }
 
 /* ---- window --------------------------------------------------------------- */
@@ -310,6 +494,9 @@ static LRESULT CALLBACK wndproc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp)
             InvalidateRect(hwnd, NULL, TRUE);
             return 0;
         }
+        case IDM_SETTINGS:
+            show_settings((HINSTANCE)GetWindowLongPtr(hwnd, GWLP_HINSTANCE));
+            return 0;
         case IDM_FUJINET_CONFIG:
             if (!colecosession_fujinet_running(g_session)) {
                 MessageBox(hwnd, "FujiNet is not running.", "FujiNet",
