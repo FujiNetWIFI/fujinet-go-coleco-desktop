@@ -47,7 +47,26 @@
     <!-- The CURRENT release templates its version from @PROJECT_VERSION@, so
          it cannot disagree with the tree; past releases are literal. The
          release job checks that this first entry is still a template. -->
-    <release version="@PROJECT_VERSION@" date="2026-09-07">
+    <release version="@PROJECT_VERSION@" date="2026-09-08">
+      <description>
+        <p>
+          The built-in FujiNet CONFIG is now the real one: WiFi setup with an
+          on-screen keyboard, host slot renaming, a file browser with paging
+          and a filter, host-to-host file copy, an adapter info screen, and a
+          Game Lobby key — the complete fujinet-config ColecoVision port,
+          replacing the bring-up stand-in.
+        </p>
+        <p>
+          File copies between hosts no longer time out on large files: the
+          cartridge grants COPY_FILE the same sixty-second budget as image
+          mounts.
+        </p>
+        <p>
+          A fresh install's second host slot now points at APPS.IRATA.ONLINE.
+        </p>
+      </description>
+    </release>
+    <release version="0.2.0" date="2026-09-07">
       <description>
         <p>
           Preferences in every frontend: the Super Game Module, palette,
