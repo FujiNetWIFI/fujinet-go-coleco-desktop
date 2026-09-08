@@ -67,6 +67,14 @@ set_tests_properties(debug PROPERTIES SKIP_RETURN_CODE 77)
 # Interactive: needs a pad and a human. Built, never added as a ctest -- no CI
 # runner can press a button, and nothing automated can tell you whether a
 # given controller reports its d-pad as a hat, as buttons or as axes.
+# The non-interactive half of gamepad_probe: an SDL3 virtual pad, so it can
+# run in CI. SKIPs (77) on a runner with no gamepad subsystem.
+add_executable(gamepad_map_test gamepad_map_test.c)
+target_link_libraries(gamepad_map_test coleco_session)
+target_include_directories(gamepad_map_test PRIVATE "${CMAKE_SOURCE_DIR}/core/src")
+add_test(NAME gamepad_map COMMAND gamepad_map_test)
+set_tests_properties(gamepad_map PROPERTIES SKIP_RETURN_CODE 77)
+
 add_executable(gamepad_probe gamepad_probe.c)
 target_link_libraries(gamepad_probe coleco_session)
 
@@ -80,7 +88,7 @@ if(WIN32)
   # cart_test is conditional on the ROMs being available, hence the guard.
   foreach(_t no_sdl_link_test cart_test boot_smoke input_test session_test
              bindings_test media_test debug_test dasm_test vdp_decode_test
-             gamepad_probe)
+             gamepad_map_test gamepad_probe)
     if(TARGET ${_t})
       target_link_options(${_t} PRIVATE -static -static-libgcc -static-libstdc++)
     endif()
