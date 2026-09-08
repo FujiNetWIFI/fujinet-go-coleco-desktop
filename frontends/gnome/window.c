@@ -15,6 +15,7 @@
 #include "window.h"
 
 #include "display.h"
+#include "prefs.h"
 #include "debugger/dbg_window.h"
 #include "keypad/keypad_window.h"
 
@@ -307,6 +308,31 @@ static void action_fujinet_config(GSimpleAction *a, GVariant *p,
     g_object_unref(l);
 }
 
+/* Stop, re-read the settings store, start. Preferences hands this to
+ * coleco_prefs_show() as its close callback; the cartridge and BIOS paths
+ * open-code the same three calls because they have their own toasts to
+ * push on failure. */
+static void restart_session(ColecoWindow *self)
+{
+    colecosession_start_opts o;
+    colecosession_settings_flush(self->session);
+    colecosession_default_opts(self->session, &o);
+    colecosession_stop(self->session);
+    if (colecosession_start(self->session, &o) != 0) {
+        push_toast(self, colecosession_last_error(self->session));
+        return;
+    }
+    push_toast(self, "Machine options applied (session restarted)");
+}
+
+static void action_prefs(GSimpleAction *a, GVariant *p, gpointer user_data)
+{
+    ColecoWindow *self = user_data;
+    (void)a;
+    (void)p;
+    coleco_prefs_show(self, self->session, restart_session);
+}
+
 static void action_aspect(GSimpleAction *a, GVariant *p, gpointer user_data)
 {
     ColecoWindow *self = user_data;
@@ -336,6 +362,7 @@ static const GActionEntry win_actions[] = {
     { "debugger", action_debugger, NULL, NULL, NULL, { 0 } },
     { "import-bios", action_import_bios, NULL, NULL, NULL, { 0 } },
     { "fujinet-config", action_fujinet_config, NULL, NULL, NULL, { 0 } },
+    { "prefs", action_prefs, NULL, NULL, NULL, { 0 } },
     { "tv-aspect", action_aspect, NULL, "true", NULL, { 0 } },
     { "smooth", action_smooth, NULL, "false", NULL, { 0 } },
 };
@@ -348,6 +375,7 @@ static GMenu *build_menu(void)
     GMenu *machine = g_menu_new();
     GMenu *view = g_menu_new();
     GMenu *fuji = g_menu_new();
+    GMenu *app = g_menu_new();
 
     g_menu_append(machine, "_Open Cartridge...", "win.open");
     g_menu_append(machine, "_Eject Cartridge", "win.eject");
@@ -365,9 +393,13 @@ static GMenu *build_menu(void)
     g_menu_append(fuji, "FujiNet _Configuration", "win.fujinet-config");
     g_menu_append_section(menu, NULL, G_MENU_MODEL(fuji));
 
+    g_menu_append(app, "_Preferences", "win.prefs");
+    g_menu_append_section(menu, NULL, G_MENU_MODEL(app));
+
     g_object_unref(machine);
     g_object_unref(view);
     g_object_unref(fuji);
+    g_object_unref(app);
     return menu;
 }
 
@@ -408,6 +440,14 @@ GtkWidget *coleco_window_new(AdwApplication *app, colecosession *session)
 
     g_action_map_add_action_entries(G_ACTION_MAP(self), win_actions,
                                     G_N_ELEMENTS(win_actions), self);
+    /* Ctrl+comma is the GNOME-wide Preferences accelerator. F9/F12 are
+     * handled in on_key_pressed with the rest of the machine keys, because
+     * they must work while the keypad or debugger window has the focus. */
+    {
+        static const char *const prefs_accels[] = { "<Control>comma", NULL };
+        gtk_application_set_accels_for_action(GTK_APPLICATION(app),
+                                              "win.prefs", prefs_accels);
+    }
 
     header = adw_header_bar_new();
     menu = build_menu();
