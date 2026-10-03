@@ -68,7 +68,11 @@ int coleco_host_frame_copy(uint16_t *dst, uint64_t *serial_inout)
  * they keep arriving at something close to the machine's own rate, the
  * emulator runs one frame per tick and inherits the display's cadence exactly
  * -- which is what removes the slow beat between 59.92 Hz and a 60 Hz panel.
- * The moment they stop (an unmapped window, a tiling WM that never presents,
+ * "Close" is measured, not assumed: the tick interval is smoothed here and
+ * the lock refuses any source outside a few percent of the frame period. A
+ * 120 Hz panel, the KDE frontend's 8 ms poll timer, or a DwmFlush that falls
+ * straight through would otherwise run one machine frame per tick -- every
+ * game at double speed or worse. The moment they stop (an unmapped window, a tiling WM that never presents,
  * a frontend with no frame clock at all) it falls back to the wall clock
  * without stalling. */
 
@@ -77,6 +81,10 @@ static pthread_cond_t s_vs_cond = PTHREAD_COND_INITIALIZER;
 static uint64_t s_vs_count;
 static int64_t s_vs_last_ns;   /* frontend's frame-clock time, informational */
 static int64_t s_vs_seen_ns;   /* our own monotonic time of the last tick */
+static int64_t s_vs_period_ns; /* smoothed tick interval; 0 = not yet known */
+
+/* A gap longer than this is a pause (a hidden window), not an interval. */
+#define VS_STALE_NS 250000000LL
 
 static int64_t mono_ns(void)
 {
@@ -87,26 +95,41 @@ static int64_t mono_ns(void)
 
 void coleco_host_notify_vsync(int64_t frame_time_ns)
 {
+    int64_t now = mono_ns();
     pthread_mutex_lock(&s_vs_lock);
+    /* frame_time_ns == 0 is stop()'s wake-up poke, not a display tick. */
+    if (frame_time_ns != 0) {
+        int64_t dt = now - s_vs_seen_ns;
+        if (s_vs_seen_ns == 0 || dt <= 0 || dt > VS_STALE_NS)
+            s_vs_period_ns = 0;
+        else if (s_vs_period_ns == 0)
+            s_vs_period_ns = dt;
+        else
+            s_vs_period_ns += (dt - s_vs_period_ns) / 8;
+        s_vs_seen_ns = now;
+    }
     s_vs_last_ns = frame_time_ns;
-    s_vs_seen_ns = mono_ns();
     s_vs_count++;
     pthread_cond_signal(&s_vs_cond);
     pthread_mutex_unlock(&s_vs_lock);
 }
 
-/* Are ticks actually arriving? Asked BEFORE blocking on one, and the reason
- * matters: waiting for a tick that is never going to come costs the timeout
- * on every frame, which halves the frame rate for any frontend with no frame
- * clock -- headless tests included. Checking first is what makes the
- * fallback a fallback rather than a penalty. */
-static int vsync_recent(void)
+/* Are ticks actually arriving, and at the machine's own rate? Asked BEFORE
+ * blocking on one, and the reason matters: waiting for a tick that is never
+ * going to come costs the timeout on every frame, which halves the frame rate
+ * for any frontend with no frame clock -- headless tests included. Checking
+ * first is what makes the fallback a fallback rather than a penalty. The
+ * window is +/-8%: 59.94, 60 and 59.997 Hz panels lock; 72 Hz and up, and
+ * 50 Hz, pace by the wall clock instead. */
+static int vsync_usable(long frame_ns)
 {
-    int recent;
+    int ok;
     pthread_mutex_lock(&s_vs_lock);
-    recent = s_vs_seen_ns != 0 && (mono_ns() - s_vs_seen_ns) < 250000000LL;
+    ok = s_vs_seen_ns != 0 && (mono_ns() - s_vs_seen_ns) < VS_STALE_NS &&
+         s_vs_period_ns > (int64_t)frame_ns * 92 / 100 &&
+         s_vs_period_ns < (int64_t)frame_ns * 108 / 100;
     pthread_mutex_unlock(&s_vs_lock);
-    return recent;
+    return ok;
 }
 
 /* ---- the clock ------------------------------------------------------------ */
@@ -180,7 +203,7 @@ static void *machine_thread(void *arg)
         (long)(1e9 * (double)COLECO_CYCLES_PER_FRAME / COLECO_CPU_HZ + 0.5);
     /* Give up on a tick after two frames' worth and fall back to the clock. */
     const long vs_timeout_ns = frame_ns * 2;
-    struct timespec next, now;
+    struct timespec next, now, frame_start;
     uint64_t vs_seen = 0;
     int locked = 0;
 
@@ -201,6 +224,7 @@ static void *machine_thread(void *arg)
 
     while (!atomic_load(&s_stop_req)) {
         int mode = atomic_exchange(&s_reset_req, -1);
+        clock_gettime(CLOCK_MONOTONIC, &frame_start);
         if (mode >= 0)
             adamcore_request_reset(s_core, mode);
 
@@ -214,14 +238,19 @@ static void *machine_thread(void *arg)
             adamcore_run_frame(s_core);
         frame_publish(adamcore_framebuffer(s_core, NULL, NULL));
 
-        if (vsync_recent() && wait_vsync(&vs_seen, vs_timeout_ns)) {
+        if (vsync_usable(frame_ns) && wait_vsync(&vs_seen, vs_timeout_ns)) {
             /* Phase-locked: the display's cadence is the machine's. Keep the
-             * wall-clock ladder rebased so dropping back out is seamless. */
-            locked = 1;
-            clock_gettime(CLOCK_MONOTONIC, &next);
-            continue;
-        }
-        if (locked) {
+             * wall-clock ladder rebased so dropping back out is seamless. A
+             * tick back in under half a frame is a burst from the frame
+             * clock, not a vblank; that one frame takes the ladder instead. */
+            clock_gettime(CLOCK_MONOTONIC, &now);
+            if (ts_diff_ns(&now, &frame_start) >= frame_ns / 2) {
+                locked = 1;
+                next = now;
+                continue;
+            }
+            next = frame_start;
+        } else if (locked) {
             /* Ticks stopped -- the window was hidden, or the compositor
              * stopped presenting. Rebase before falling back, or the ladder
              * is however far in the past the lock began. */

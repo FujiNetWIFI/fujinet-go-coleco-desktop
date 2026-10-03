@@ -5,8 +5,9 @@
  * of GdkFrameClock, and QOpenGLWidget's swap-interval trick buys a phase lock
  * at the cost of dragging a GL context into a 256x212 blit. The timer runs a
  * little faster than the machine so no frame waits a whole period, and the
- * session's own wall-clock pacing does the real work -- notify_vsync is still
- * fed, so the phase lock engages whenever the ticks happen to be steady.
+ * session's own wall-clock pacing does the real work. notify_vsync is still
+ * fed, but at ~125 Hz the core measures it as too fast to lock to and paces
+ * by the wall clock -- following it ran every game at double speed.
  *
  * Copyright (C) 2026 Thomas Cherryhomes
  * SPDX-License-Identifier: GPL-3.0-or-later

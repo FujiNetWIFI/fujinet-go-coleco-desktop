@@ -48,6 +48,21 @@ static int64_t now_ns(void)
     return (int64_t)t.tv_sec * 1000000000LL + t.tv_nsec;
 }
 
+/* Feed vsync ticks every `period_ns` for one second, counting the distinct
+ * frames the machine publishes meanwhile. */
+static int feed_ticks(uint16_t *fb, uint64_t *serial, long period_ns)
+{
+    int frames = 0;
+    int64_t t1 = now_ns();
+    while ((now_ns() - t1) < 1000000000LL) {
+        struct timespec s2 = { 0, period_ns };
+        coleco_host_notify_vsync(now_ns());
+        if (coleco_host_frame_copy(fb, serial)) frames++;
+        nanosleep(&s2, NULL);
+    }
+    return frames;
+}
+
 int main(int argc, char **argv)
 {
     coleco_host_opts opts;
@@ -137,19 +152,33 @@ int main(int argc, char **argv)
     /* The phase-lock path: feed ticks at ~60 Hz and the machine should follow
      * them rather than its own clock. */
     {
-        int locked_frames = 0;
-        int64_t t1 = now_ns();
-        while ((now_ns() - t1) < 1000000000LL) {
-            struct timespec s2 = { 0, 16000000 }; /* ~60 Hz */
-            coleco_host_notify_vsync(now_ns());
-            if (coleco_host_frame_copy(fb, &serial)) locked_frames++;
-            nanosleep(&s2, NULL);
-        }
+        int locked_frames = feed_ticks(fb, &serial, 16000000); /* ~60 Hz */
         printf("phase-locked to ~60 Hz ticks: %d frames\n", locked_frames);
         if (locked_frames < 40 || locked_frames > 75) {
             fprintf(stderr, "FAIL: %d frames while phase-locked\n",
                     locked_frames);
             return 1;
+        }
+    }
+
+    /* Ticks well above the machine's rate must NOT be followed: the KDE
+     * frontend's 8 ms poll timer, a 120 Hz panel, a DwmFlush that falls
+     * straight through. Following them ran every game at double speed or
+     * worse; the core has to fall back to its own clock instead. */
+    {
+        static const long periods[] = { 8000000, 1000000 }; /* 125 Hz, 1 kHz */
+        size_t k;
+        for (k = 0; k < sizeof periods / sizeof periods[0]; k++) {
+            int n = feed_ticks(fb, &serial, periods[k]);
+            printf("fed %ld Hz ticks: %d frames\n",
+                   1000000000L / periods[k], n);
+            if (n < 50 || n > 68) {
+                fprintf(stderr, "FAIL: %d frames in a second of %ld Hz "
+                                "ticks -- the machine followed a tick source "
+                                "faster than itself\n",
+                        n, 1000000000L / periods[k]);
+                return 1;
+            }
         }
     }
 
