@@ -47,7 +47,19 @@
     <!-- The CURRENT release templates its version from @PROJECT_VERSION@, so
          it cannot disagree with the tree; past releases are literal. The
          release job checks that this first entry is still a template. -->
-    <release version="@PROJECT_VERSION@" date="2026-09-08">
+    <release version="@PROJECT_VERSION@" date="2026-10-03">
+      <description>
+        <p>
+          Games run at the correct speed again. The emulator was following
+          the display's refresh ticks one frame per tick no matter how fast
+          they came, so the KDE frontend — and any display faster than
+          60 Hz — ran games at double speed or more. It now only locks to a
+          display running close to the ColecoVision's own 59.92 Hz, and
+          otherwise keeps its own time.
+        </p>
+      </description>
+    </release>
+    <release version="0.3.0" date="2026-09-08">
       <description>
         <p>
           The built-in FujiNet CONFIG is now the real one: WiFi setup with an
