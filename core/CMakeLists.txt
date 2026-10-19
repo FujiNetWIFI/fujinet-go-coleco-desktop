@@ -73,6 +73,7 @@ set(COLECO_HOST_SOURCES coleco/host.c)
 # ADAMEm's is non-commercial-licensed and GPL-incompatible (COMPLIANCE.md).
 set(COLECO_DEBUGGER_SOURCES
   debugger/debugger.c
+  debugger/fujitrace.c
   debugger/z80dasm.c
   debugger/symbols.c
   debugger/symbols_builtin.c

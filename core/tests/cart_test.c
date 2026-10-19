@@ -16,7 +16,9 @@
  * fail here.
  *
  * Needs no ROMs and no network: with nothing listening the link is simply
- * down, which is itself one of the states worth asserting.
+ * down, which is itself one of the states worth asserting. On POSIX a
+ * loopback stand-in for FujiNet then checks the debugger's trace tap against
+ * the bytes actually on the wire.
  *
  * Copyright (C) 2026 Thomas Cherryhomes
  * SPDX-License-Identifier: GPL-3.0-or-later
@@ -24,11 +26,19 @@
 
 #include <stdio.h>
 #include <string.h>
+#ifndef _WIN32
+#include <arpa/inet.h>
+#include <netinet/in.h>
+#include <pthread.h>
+#include <sys/socket.h>
+#include <unistd.h>
+#endif
 
 #include "adamcore.h"
 #include "adamcore_debug.h"
 #include "fuji_mailbox.h"
 #include "fujinet_cart.h"
+#include "fujitrace.h"
 
 static uint8_t os7[ADAMCORE_OS7_ROM_SIZE];
 static int failures;
@@ -85,6 +95,125 @@ static void prog_run(adamcore *c)
     adamcore_debug_run(c, (uint32_t)ninstr, 0, NULL);
 }
 
+/* The debugger's trace tap: count what it is handed. */
+static size_t traced;
+
+static void count_trace(void *user, int dir, const uint8_t *buf, size_t len)
+{
+    (void)user;
+    (void)dir;
+    (void)buf;
+    traced += len;
+}
+
+#ifndef _WIN32
+/* ---- a stand-in FujiNet on loopback ---------------------------------------
+ * It answers one request the way MediaTypeROM::mount() answers MOUNT_IMAGE:
+ * a pushed stream (OPEN, WRITE, CLOSE, each waiting for its ACK) and then the
+ * reply. Both ends keep every byte, so the trace can be held to the wire. */
+
+typedef struct {
+    uint8_t b[4096];
+    size_t n;
+} wire;
+
+static wire traced_wire[2]; /* by the trace's dir */
+static fujitrace traced_ft;
+
+static void keep_trace(void *user, int dir, const uint8_t *buf, size_t len)
+{
+    wire *w = &traced_wire[dir ? 1 : 0];
+    (void)user;
+    if (w->n + len <= sizeof w->b) {
+        memcpy(w->b + w->n, buf, len);
+        w->n += len;
+    }
+    fujitrace_feed(&traced_ft, dir, buf, len);
+}
+
+/* A FujiBus packet with no params, SLIP-framed, as FujiNet sends one. */
+static size_t slip_frame(uint8_t dev, uint8_t cmd, const uint8_t *data,
+                         size_t len, uint8_t *out)
+{
+    uint8_t pkt[600];
+    uint16_t ck = 0;
+    size_t n = 6 + len, i, o = 0;
+
+    pkt[0] = dev;
+    pkt[1] = cmd;
+    pkt[2] = (uint8_t)(n & 0xFF);
+    pkt[3] = (uint8_t)(n >> 8);
+    pkt[4] = 0;
+    pkt[5] = 0;
+    memcpy(pkt + 6, data, len);
+    for (i = 0; i < n; i++) {
+        ck = (uint16_t)(ck + pkt[i]);
+        ck = (uint16_t)((ck >> 8) + (ck & 0xFF));
+    }
+    pkt[4] = (uint8_t)ck;
+    out[o++] = 0xC0;
+    for (i = 0; i < n; i++) {
+        if (pkt[i] == 0xC0 || pkt[i] == 0xDB) {
+            out[o++] = 0xDB;
+            out[o++] = pkt[i] == 0xC0 ? 0xDC : 0xDD;
+        } else {
+            out[o++] = pkt[i];
+        }
+    }
+    out[o++] = 0xC0;
+    return o;
+}
+
+typedef struct {
+    int listen_fd, fd;
+    wire got, sent; /* the stand-in's side of the wire */
+    int ok;
+} fake_fujinet;
+
+static int fake_read_frame(fake_fujinet *f)
+{
+    int ends = 0;
+    uint8_t c;
+    while (ends < 2) {
+        if (recv(f->fd, &c, 1, 0) != 1) return -1;
+        if (f->got.n < sizeof f->got.b) f->got.b[f->got.n++] = c;
+        if (c == 0xC0) ends++;
+    }
+    return 0;
+}
+
+static void fake_send(fake_fujinet *f, uint8_t dev, uint8_t cmd,
+                      const uint8_t *data, size_t len)
+{
+    uint8_t frame[1300];
+    size_t n = slip_frame(dev, cmd, data, len, frame);
+    memcpy(f->sent.b + f->sent.n, frame, n);
+    f->sent.n += n;
+    send(f->fd, frame, n, 0);
+}
+
+static void *fake_main(void *arg)
+{
+    /* the .cfg stream, three bytes, two of them needing SLIP escapes */
+    static const uint8_t open_hdr[5] = {1, 3, 0, 0, 0};
+    static const uint8_t cfg[3] = {0xC0, 0xDB, 'x'};
+    static const uint8_t reply[4] = {0xDB, 0xC0, 0x00, 0x42};
+    fake_fujinet *f = arg;
+
+    f->fd = accept(f->listen_fd, NULL, NULL);
+    if (f->fd < 0 || fake_read_frame(f) != 0) return NULL;
+    fake_send(f, 0xFF, 0x4F, open_hdr, sizeof open_hdr);
+    if (fake_read_frame(f) != 0) return NULL;
+    fake_send(f, 0xFF, 0x57, cfg, sizeof cfg);
+    if (fake_read_frame(f) != 0) return NULL;
+    fake_send(f, 0xFF, 0x43, NULL, 0);
+    if (fake_read_frame(f) != 0) return NULL;
+    fake_send(f, 0x70, 0x06, reply, sizeof reply);
+    f->ok = 1;
+    return NULL;
+}
+#endif
+
 /* Read a status byte the way a debugger would -- deliberately NOT through the
  * bus, so observing the mailbox cannot perturb it. */
 static uint8_t status(adamcore *c, uint16_t addr)
@@ -115,6 +244,7 @@ int main(void)
     cart = coleco_cart_create(NULL, 0, "127.0.0.1:1");
     if (!cart) { fprintf(stderr, "coleco_cart_create failed\n"); return 1; }
     adamcore_set_cart_ops(c, coleco_cart_ops(), cart);
+    coleco_cart_set_trace(count_trace, NULL);
 
     printf("the cartridge answers:\n");
     check("the mailbox is live on the CONFIG client",
@@ -153,6 +283,7 @@ int main(void)
     check("the link-up status bit is clear",
           (status(c, 0xFC01) & FN_R_STATUS_LINK) == 0);
     check("coleco_cart_link_up() agrees", !coleco_cart_link_up(cart));
+    check("the trace saw nothing: no byte reached the wire", traced == 0);
 
     /* ---- the stray-read defence ------------------------------------------ */
     printf("stray reads cannot disturb it:\n");
@@ -200,6 +331,7 @@ int main(void)
               status(c, 0xFC00) == next);
     }
 
+    coleco_cart_set_trace(NULL, NULL);
     adamcore_set_cart_ops(c, NULL, NULL);
     coleco_cart_destroy(cart);
     adamcore_destroy(c);
@@ -228,6 +360,87 @@ int main(void)
         coleco_cart_destroy(cart2);
         adamcore_destroy(c2);
     }
+
+#ifndef _WIN32
+    /* ---- the debugger's trace, held to the wire --------------------------- */
+    printf("the trace matches the wire, pushes and all:\n");
+    {
+        static const struct { int to_host, dev, cmd; } want[] = {
+            {0, 0x70, 0xC4}, {1, 0xFF, 0x4F}, {0, 0xFF, 0x06},
+            {1, 0xFF, 0x57}, {0, 0xFF, 0x06}, {1, 0xFF, 0x43},
+            {0, 0xFF, 0x06}, {1, 0x70, 0x06},
+        };
+        coleco_fuji_packet pk[16];
+        fake_fujinet f;
+        pthread_t th;
+        struct sockaddr_in a;
+        socklen_t alen = sizeof a;
+        char hostport[32];
+        adamcore *c3;
+        coleco_cart *cart3;
+        int n, i, order = 1;
+
+        memset(&f, 0, sizeof f);
+        f.fd = -1;
+        f.listen_fd = socket(AF_INET, SOCK_STREAM, 0);
+        memset(&a, 0, sizeof a);
+        a.sin_family = AF_INET;
+        a.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+        if (f.listen_fd < 0 ||
+            bind(f.listen_fd, (struct sockaddr *)&a, sizeof a) != 0 ||
+            listen(f.listen_fd, 1) != 0 ||
+            getsockname(f.listen_fd, (struct sockaddr *)&a, &alen) != 0) {
+            fprintf(stderr, "loopback listener failed\n");
+            return 1;
+        }
+        snprintf(hostport, sizeof hostport, "127.0.0.1:%d", ntohs(a.sin_port));
+        pthread_create(&th, NULL, fake_main, &f);
+
+        c3 = adamcore_create(&cfg);
+        cart3 = coleco_cart_create(NULL, 0, hostport);
+        if (!c3 || !cart3) { fprintf(stderr, "third create failed\n"); return 1; }
+        adamcore_set_cart_ops(c3, coleco_cart_ops(), cart3);
+        coleco_cart_set_trace(keep_trace, NULL);
+
+        seq = (uint8_t)(status(c3, 0xFC00) + 1);
+        if (seq == 0) seq = 1;
+        prog_begin();
+        emit_regwr(FN_REG_DATA_RST, 0);
+        emit_regwr(FN_REG_DEVICE, 0x70);
+        emit_regwr(FN_REG_CMD, 0xC4);
+        emit_regwr(FN_REG_NPARAM, 0);
+        emit_regwr(FN_REG_SEQ, seq);
+        prog_run(c3);
+        pthread_join(th, NULL);
+
+        check("the stand-in served the whole exchange", f.ok);
+        check("the client saw the reply",
+              status(c3, 0xFC00) == seq && status(c3, 0xFC02) == FN_ERR_OK &&
+              status(c3, 0xFC03) == 0x06);
+        check("traced as sent: byte for byte what FujiNet received",
+              traced_wire[1].n == f.got.n &&
+              memcmp(traced_wire[1].b, f.got.b, f.got.n) == 0);
+        check("traced as received: byte for byte what FujiNet sent",
+              traced_wire[0].n == f.sent.n &&
+              memcmp(traced_wire[0].b, f.sent.b, f.sent.n) == 0);
+        n = fujitrace_read(&traced_ft, pk, 16);
+        for (i = 0; i < n && i < 8; i++)
+            if (pk[i].to_host != want[i].to_host ||
+                pk[i].device != want[i].dev || pk[i].command != want[i].cmd)
+                order = 0;
+        check("in the order they crossed: request, each push and its ACK, "
+              "reply", n == 8 && order);
+        for (i = 0; i < n; i++)
+            printf("      %s\n", pk[i].text);
+
+        coleco_cart_set_trace(NULL, NULL);
+        adamcore_set_cart_ops(c3, NULL, NULL);
+        coleco_cart_destroy(cart3);
+        adamcore_destroy(c3);
+        if (f.fd >= 0) close(f.fd);
+        close(f.listen_fd);
+    }
+#endif
 
     if (failures) {
         fprintf(stderr, "\ncart_test: %d failure(s)\n", failures);

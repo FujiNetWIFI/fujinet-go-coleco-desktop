@@ -83,6 +83,7 @@ struct coleco_cart {
     int staged_claims;
     int swap_armed;
     int debug;
+    char hostport[128];
 };
 
 /* fujimail's port interface takes no context argument, so the single
@@ -232,17 +233,136 @@ static void c_on_dbc(fujimail_dbc_ev_t ev, int stream, uint32_t expect,
                 aborted ? " ABORTED" : "");
 }
 
+/* ---- the debugger's trace -------------------------------------------------
+ * fujitcp.c is staged verbatim, so the trace taps the port instead. A request
+ * is encoded again with the same fujibus_build_request call fujitcp makes,
+ * which is exactly the bytes it sends. A frame fujitcp parsed is SLIP-encoded
+ * back from its fields: replies and DBC pushes carry no params (descriptor
+ * 0), so that is byte for byte what arrived. All on the emulator thread. */
+
+static coleco_cart_trace_fn s_trace;
+static void *s_trace_user;
+/* The frame fujitcp is handing fujimail_inbound mid-transaction. */
+static const fb_reply_t *s_inbound;
+
+void coleco_cart_set_trace(coleco_cart_trace_fn fn, void *user)
+{
+    s_trace_user = user;
+    s_trace = fn;
+}
+
+typedef struct {
+    uint8_t buf[256];
+    size_t n;
+} slipout;
+
+static void so_put(slipout *o, uint8_t b)
+{
+    if (o->n == sizeof o->buf) {
+        s_trace(s_trace_user, 0, o->buf, o->n);
+        o->n = 0;
+    }
+    o->buf[o->n++] = b;
+}
+
+static void so_byte(slipout *o, uint8_t b)
+{
+    if (b == 0xC0 || b == 0xDB) {
+        so_put(o, 0xDB);
+        so_put(o, b == 0xC0 ? 0xDC : 0xDD);
+    } else {
+        so_put(o, b);
+    }
+}
+
+/* fujibus.c's checksum: an 8-bit sum with the carry folded back in. */
+static uint16_t ck_add(uint16_t c, uint8_t b)
+{
+    c += b;
+    return (uint16_t)((c >> 8) + (c & 0xFF));
+}
+
+static void trace_received(const fb_reply_t *r)
+{
+    const uint16_t len = (uint16_t)(6 + r->data_len);
+    uint8_t hdr[6];
+    uint16_t ck = 0;
+    slipout o;
+    unsigned i;
+
+    hdr[0] = r->device;
+    hdr[1] = r->command;
+    hdr[2] = (uint8_t)(len & 0xFF);
+    hdr[3] = (uint8_t)(len >> 8);
+    hdr[4] = 0;
+    hdr[5] = 0;
+    for (i = 0; i < 6; i++) ck = ck_add(ck, hdr[i]);
+    for (i = 0; i < r->data_len; i++) ck = ck_add(ck, r->data[i]);
+    hdr[4] = (uint8_t)ck;
+
+    o.n = 0;
+    so_put(&o, 0xC0);
+    for (i = 0; i < 6; i++) so_byte(&o, hdr[i]);
+    for (i = 0; i < r->data_len; i++) so_byte(&o, r->data[i]);
+    so_put(&o, 0xC0);
+    s_trace(s_trace_user, 0, o.buf, o.n);
+}
+
+static void trace_sent(uint8_t device, uint8_t command,
+                       const fb_param_t *params, unsigned nparams,
+                       const uint8_t *payload, uint16_t payload_len)
+{
+    static uint8_t req[FN_TX_MAX + 64]; /* fujitcp's own size */
+    size_t n;
+
+    if (!fujitcp_active()) return; /* nothing goes out */
+    n = fujibus_build_request(device, command, params, nparams, payload,
+                              payload_len, req, sizeof req);
+    if (n) s_trace(s_trace_user, 1, req, n);
+}
+
+static fb_status_t t_transact(uint8_t device, uint8_t command,
+                              const fb_param_t *params, unsigned nparams,
+                              const uint8_t *payload, uint16_t payload_len,
+                              uint32_t timeout_ms, fb_reply_t *reply)
+{
+    fb_status_t st;
+
+    if (!s_trace)
+        return fujitcp_transact(device, command, params, nparams, payload,
+                                payload_len, timeout_ms, reply);
+    trace_sent(device, command, params, nparams, payload, payload_len);
+    s_inbound = reply;
+    st = fujitcp_transact(device, command, params, nparams, payload,
+                          payload_len, timeout_ms, reply);
+    s_inbound = NULL;
+    if (st == FB_OK) trace_received(reply);
+    return st;
+}
+
+/* fujimail_inbound answers each push frame with exactly one of these, so
+ * the frame it answers is traced first. */
+static void t_send_bare(uint8_t device, uint8_t command,
+                        const uint8_t *payload, uint16_t payload_len)
+{
+    if (s_trace) {
+        if (s_inbound) trace_received(s_inbound);
+        trace_sent(device, command, NULL, 0, payload, payload_len);
+    }
+    fujitcp_send_bare(device, command, payload, payload_len);
+}
+
 /* wait_link_ms is NULL: fujitcp's round trip is synchronous, so there is
  * nothing to pump while waiting. bootsel is NULL: there is no RP2040 to
  * reboot into a bootloader here. */
 static const fujimail_port_t port_quiet = {
-    c_poke, c_link_up, fujitcp_transact, fujitcp_send_bare,
+    c_poke, c_link_up, t_transact, t_send_bare,
     c_stream_open, c_stream_write, c_stream_close, c_arm_swap,
     NULL, NULL, NULL, NULL
 };
 
 static const fujimail_port_t port_debug = {
-    c_poke, c_link_up, fujitcp_transact, fujitcp_send_bare,
+    c_poke, c_link_up, t_transact, t_send_bare,
     c_stream_open, c_stream_write, c_stream_close, c_arm_swap,
     NULL, NULL, c_on_txn, c_on_dbc
 };
@@ -360,6 +480,10 @@ coleco_cart *coleco_cart_create(const uint8_t *image, uint32_t size,
     if (!c) return NULL;
     c->debug = getenv("FUJINET_DEBUG") != NULL;
     c->pending_hint = COLMAP_KIND_AUTO;
+    /* The endpoint as fujitcp_init resolves it, for the debugger. */
+    if (!hostport) hostport = getenv("FUJINET_TCP");
+    snprintf(c->hostport, sizeof c->hostport, "%s",
+             hostport ? hostport : "127.0.0.1:9995");
     memset(c->window, 0xFF, sizeof c->window);
     memset(c->staged, 0xFF, sizeof c->staged);
 
@@ -436,4 +560,31 @@ int coleco_cart_link_up(const coleco_cart *c)
 colmap_kind_t coleco_cart_kind(const coleco_cart *c)
 {
     return c ? c->serve.kind : COLMAP_FLAT;
+}
+
+void coleco_cart_get_info(const coleco_cart *c, coleco_cart_info *out)
+{
+    const uint8_t *w;
+
+    memset(out, 0, sizeof *out);
+    if (!c) return;
+    w = c->window;
+    snprintf(out->hostport, sizeof out->hostport, "%s", c->hostport);
+    out->link_up = fujitcp_active() ? 1 : 0;
+    out->mailbox_live = c->mailbox_live;
+    out->kind = c->serve.kind;
+    out->size = c->serve.size;
+    out->bank = c->serve.bank;
+    out->staged = c->have_staged;
+    out->swap_armed = c->swap_armed;
+    out->staged_kind = c->staged_plan.kind;
+    out->staged_size = c->staged_plan.size;
+    out->ackseq = w[FN_R_ACKSEQ];
+    out->status = w[FN_R_STATUS];
+    out->err = w[FN_R_ERR];
+    out->reply_cmd = w[FN_R_REPLY_CMD];
+    out->rxlen = (uint16_t)(w[FN_R_RXLEN_LO] | (w[FN_R_RXLEN_HI] << 8));
+    out->boot_state = w[FN_R_BOOT_STATE];
+    out->boot_pct = w[FN_R_BOOT_PCT];
+    out->boot_err = w[FN_R_BOOT_ERR];
 }

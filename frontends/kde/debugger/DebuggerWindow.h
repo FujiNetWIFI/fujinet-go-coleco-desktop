@@ -37,6 +37,7 @@ private:
     void refreshBps();
     void refreshTrace();
     void refreshVdp();
+    void refreshFujinet(bool force);
     void onStopped(int reason, quint16 pc);
     void pauseContinue();
     bool parseAddr(const QString &text, quint16 *out);
@@ -73,5 +74,14 @@ private:
     QPlainTextEdit *m_vramView;
     quint16 m_vramBase = 0;
 
+    QLabel *m_fujiNote;
+    QPlainTextEdit *m_fujiText;
+    QPlainTextEdit *m_fujiState;
+    int m_fujiCount = -1;   /* what the log shows: rebuilt when these change */
+    quint64 m_fujiLast = 0;
+    bool m_fujiFollow = true;   /* the log keeps to its end */
+    bool m_fujiShown = false;
+
     QTimer *m_tick;
+    int m_runningTicks = 0;
 };

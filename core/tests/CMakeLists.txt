@@ -11,8 +11,16 @@ add_test(NAME no_sdl_link COMMAND no_sdl_link_test)
 if(COLECO_HAVE_CART)
   add_executable(cart_test cart_test.c)
   target_link_libraries(cart_test coleco_core)
+  target_include_directories(cart_test PRIVATE "${CMAKE_SOURCE_DIR}/core/debugger")
   add_test(NAME cart COMMAND cart_test)
 endif()
+
+# The debugger's FujiNet trace decoder, fed synthetic SLIP bytes. No ROM, no
+# network, no SDL: it always runs.
+add_executable(fujitrace_test fujitrace_test.c)
+target_link_libraries(fujitrace_test coleco_core)
+target_include_directories(fujitrace_test PRIVATE "${CMAKE_SOURCE_DIR}/core/debugger")
+add_test(NAME fujitrace COMMAND fujitrace_test)
 
 # The real machine on its real thread. Skips (77) without a BIOS, which is
 # every CI and release checkout -- this repository does not ship one.
@@ -86,9 +94,9 @@ endif() # TARGET coleco_session
 # on a bare Windows box, or under wine when cross-compiling.
 if(WIN32)
   # cart_test is conditional on the ROMs being available, hence the guard.
-  foreach(_t no_sdl_link_test cart_test boot_smoke input_test session_test
-             bindings_test media_test debug_test dasm_test vdp_decode_test
-             gamepad_map_test gamepad_probe)
+  foreach(_t no_sdl_link_test cart_test fujitrace_test boot_smoke input_test
+             session_test bindings_test media_test debug_test dasm_test
+             vdp_decode_test gamepad_map_test gamepad_probe)
     if(TARGET ${_t})
       target_link_options(${_t} PRIVATE -static -static-libgcc -static-libstdc++)
     endif()

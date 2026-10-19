@@ -1,8 +1,9 @@
 /*
  * Debugger window (Qt6): disassembly with click-to-toggle breakpoints,
- * editable registers, memory view, breakpoints, instruction trace, and the
- * VDP visualizers, over the shared colecodebug engine. The engine's stop
- * callback fires on the emulator thread and is marshaled here through a
+ * editable registers, memory view, breakpoints, instruction trace, the VDP
+ * visualizers, and the FujiNet dock (every FujiBus packet the cartridge sends
+ * or receives, with hex), over the shared colecodebug engine. The engine's
+ * stop callback fires on the emulator thread and is marshaled here through a
  * queued signal.
  *
  * Copyright (C) 2026 Thomas Cherryhomes
@@ -25,7 +26,9 @@
 #include <QPointer>
 #include <QPushButton>
 #include <QScrollArea>
+#include <QScrollBar>
 #include <QShortcut>
+#include <QSplitter>
 #include <QTextBlock>
 #include <QTimer>
 #include <QToolBar>
@@ -37,6 +40,7 @@ constexpr int kMemRows = 16;
 constexpr int kVramRows = 16;
 constexpr int kVramPage = kVramRows * 16;
 constexpr int kPokeMax = 64;
+constexpr int kFujiMax = 512;
 const char *const kRegNames[8] = {"AF", "BC", "DE", "HL",
                                   "IX", "IY", "SP", "PC"};
 
@@ -80,6 +84,26 @@ QPlainTextEdit *monoView()
     return v;
 }
 
+/* Whether a view's reader is at its end (a log then follows new lines). */
+bool atEnd(QPlainTextEdit *v)
+{
+    return v->verticalScrollBar()->value() >= v->verticalScrollBar()->maximum() - 1;
+}
+
+/* Replaces a view's text where the reader left it (a refresh must not throw
+ * a scrolled view back to its top), or, following, at its end. */
+void setText(QPlainTextEdit *v, const QString &text, bool follow = false)
+{
+    if (v->toPlainText() == text) {
+        if (follow) v->verticalScrollBar()->setValue(v->verticalScrollBar()->maximum());
+        return;
+    }
+    const int top = v->verticalScrollBar()->value(), left = v->horizontalScrollBar()->value();
+    v->setPlainText(text);
+    v->verticalScrollBar()->setValue(follow ? v->verticalScrollBar()->maximum() : top);
+    v->horizontalScrollBar()->setValue(left);
+}
+
 QPointer<DebuggerWindow> g_singleton;
 
 void stop_trampoline(void *ud, colecodebug_stop_reason reason, uint16_t pc)
@@ -121,6 +145,12 @@ DebuggerWindow::DebuggerWindow(QWidget *parent, colecosession *session)
         if (!colecodebug_is_paused(m_dbg)) {
             refreshVdp();
             refreshRegs();
+            /* the FujiNet log twice a second, while it shows */
+            if (++m_runningTicks >= 5) {
+                m_runningTicks = 0;
+                if (m_fujiShown)
+                    refreshFujinet(false);
+            }
         }
     });
     m_tick->start(100);
@@ -379,9 +409,67 @@ void DebuggerWindow::buildUi()
     auto *traceDock = new QDockWidget(QStringLiteral("Trace"), this);
     traceDock->setWidget(m_traceView);
     addDockWidget(Qt::BottomDockWidgetArea, traceDock);
+
+    /* FujiNet: the packet log (a note and Clear over it), the cartridge's
+     * state beside it. Last, after the docks that were here before it. */
+    auto *fuji = new QSplitter(Qt::Horizontal);
+    auto *logBox = new QGroupBox(QStringLiteral("FujiBus packets (SLIP-decoded)"));
+    auto *logLayout = new QVBoxLayout(logBox);
+    auto *row = new QHBoxLayout;
+    m_fujiNote = new QLabel;
+    m_fujiNote->setWordWrap(true);
+    auto *fujiClear = new QPushButton(QStringLiteral("Clear"));
+    connect(fujiClear, &QPushButton::clicked, this, [this] {
+        colecodebug_fujinet_trace_clear(m_dbg);
+        refreshFujinet(true);
+    });
+    row->addWidget(m_fujiNote, 1);
+    row->addWidget(fujiClear);
+    logLayout->addLayout(row);
+    m_fujiText = monoView();
+    /* New text grows the view only once it is laid out (or its tab first
+     * shows), so a following log is pinned whenever its range changes. */
+    connect(m_fujiText->verticalScrollBar(), &QScrollBar::rangeChanged, this,
+            [this](int, int max) {
+                if (m_fujiFollow)
+                    m_fujiText->verticalScrollBar()->setValue(max);
+            });
+    logLayout->addWidget(m_fujiText, 1);
+    logBox->setMinimumWidth(560);
+    auto *stateBox = new QGroupBox(QStringLiteral("FujiNet cartridge"));
+    auto *stateLayout = new QVBoxLayout(stateBox);
+    m_fujiState = monoView();
+    stateLayout->addWidget(m_fujiState, 1);
+    stateBox->setMinimumWidth(320);
+    fuji->addWidget(logBox);
+    fuji->addWidget(stateBox);
+    fuji->setStretchFactor(0, 3);
+    fuji->setStretchFactor(1, 2);
+    fuji->setChildrenCollapsible(false);
+    auto *fujiDock = new QDockWidget(QStringLiteral("FujiNet"), this);
+    fujiDock->setWidget(fuji);
+    addDockWidget(Qt::BottomDockWidgetArea, fujiDock);
+    /* A tabified dock is visible only while its tab is raised. */
+    connect(fujiDock, &QDockWidget::visibilityChanged, this, [this](bool shown) {
+        m_fujiShown = shown;
+        if (shown)
+            refreshFujinet(false);
+    });
+
     tabifyDockWidget(vdpDock, vramDock);
     tabifyDockWidget(vramDock, traceDock);
+    tabifyDockWidget(traceDock, fujiDock);
     vdpDock->raise();
+
+    /* Dev affordance: COLECO_DEBUGGER_TAB=vdp|vram|trace|fujinet raises
+     * that dock. */
+    const QByteArray tab = qgetenv("COLECO_DEBUGGER_TAB");
+    if (tab == "vram")
+        vramDock->raise();
+    else if (tab == "trace")
+        traceDock->raise();
+    else if (tab == "fujinet")
+        fujiDock->raise();
 }
 
 bool DebuggerWindow::parseAddr(const QString &text, quint16 *out)
@@ -441,6 +529,7 @@ void DebuggerWindow::refreshAll()
     refreshBps();
     refreshTrace();
     refreshVdp();
+    refreshFujinet(false);
     m_pauseBtn->setText(colecodebug_is_paused(m_dbg)
                             ? QStringLiteral("Continue (F5)")
                             : QStringLiteral("Pause (F5)"));
@@ -605,6 +694,42 @@ void DebuggerWindow::refreshVdp()
     colecovdp_format_hex(&snap, m_vramBase, kVramRows, state,
                        int(sizeof(state)));
     m_vramView->setPlainText(QString::fromLatin1(state));
+}
+
+/* The log is rebuilt only when it has changed; the state pane always. */
+void DebuggerWindow::refreshFujinet(bool force)
+{
+    static coleco_fuji_packet p[kFujiMax];
+    static char state[2048];
+    const int n = colecodebug_fujinet_trace(m_dbg, p, kFujiMax);
+
+    if (!colecosession_fujinet_running(m_session))
+        m_fujiNote->setText(QStringLiteral("FujiNet is off (Preferences ▸ FujiNet)."));
+    else
+        m_fujiNote->setText(colecosession_cart_link_up(m_session)
+                                ? QStringLiteral("FujiNet cartridge, connected.")
+                                : QStringLiteral("FujiNet cartridge, not connected."));
+    colecodebug_fujinet_state(m_dbg, state, int(sizeof(state)));
+    setText(m_fujiState, QString::fromUtf8(state));
+
+    if (!force && n == m_fujiCount && (n == 0 || p[n - 1].serial == m_fujiLast))
+        return;
+    m_fujiCount = n;
+    m_fujiLast = n > 0 ? p[n - 1].serial : 0;
+    QString t;
+    for (int i = 0; i < n; i++) {
+        if (i)
+            t += QLatin1Char('\n');
+        t += QString::fromUtf8(p[i].text) + QStringLiteral("\n     ");
+        for (int k = 0; k < p[i].nbytes && k < int(sizeof p[i].data); k++)
+            t += QStringLiteral("%1 ").arg(p[i].data[k], 2, 16, QLatin1Char('0')).toUpper();
+        if (p[i].nbytes > int(sizeof p[i].data))
+            t += QStringLiteral("…");
+    }
+    if (n == 0)
+        t = QStringLiteral("(no FujiBus packets since the trace was cleared)");
+    m_fujiFollow = force || atEnd(m_fujiText);
+    setText(m_fujiText, t, m_fujiFollow);
 }
 
 /* One entry does both jobs: an address alone scrolls the dump there, an

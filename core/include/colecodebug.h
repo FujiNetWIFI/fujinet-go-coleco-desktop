@@ -2,8 +2,9 @@
  * colecodebug -- the toolkit-agnostic debugger engine for FujiNet Go Adam
  * Desktop. Wraps adamcore's debug interface (adamcore_debug.h) with
  * pause/step/run-to execution control, breakpoint management, an
- * instruction-history ring, a Z80 disassembler, EOS/OS7 symbol tables, and
- * VDP visualizer decoders. One engine exists per session
+ * instruction-history ring, a Z80 disassembler, EOS/OS7 symbol tables, VDP
+ * visualizer decoders, and a trace of the cartridge's FujiBus traffic. One
+ * engine exists per session
  * (colecosession_debugger()); native GTK/Qt views sit on top.
  *
  * Threading: control calls (pause/resume/step/breakpoints) are safe from
@@ -110,6 +111,24 @@ int  colecodebug_trace_enabled(colecodebug *d);
 /* Copies up to max entries, newest first. Returns entries written. */
 int  colecodebug_trace_read(colecodebug *d, colecotrace_entry *out, int max);
 void colecodebug_trace_clear(colecodebug *d);
+
+/* ---- FujiNet: the cartridge's FujiBus traffic, both ways -------------------
+ * Always on from the session's start, debugger open or not: it is cheap, and
+ * it is most useful about what happened before anyone thought to look. */
+typedef struct {
+    uint64_t serial;
+    int      to_host;       /* 1: FujiNet -> ColecoVision, 0: the other way */
+    int      device, command, length;   /* from the FujiBus header, -1 if short */
+    int      nbytes;
+    uint8_t  data[64];      /* the decoded packet's first bytes */
+    char     text[96];      /* "ColecoVision -> FujiNet 70 F4 READ HOST SLOTS (6 bytes)" */
+    uint32_t repeat;        /* identical exchanges folded into this entry ("x3") */
+} coleco_fuji_packet;
+/* The newest max packets, oldest first. Returns entries written. */
+int  colecodebug_fujinet_trace(colecodebug *d, coleco_fuji_packet *out, int max);
+void colecodebug_fujinet_trace_clear(colecodebug *d);
+/* The cartridge's link, mailbox and image, as text lines. */
+int  colecodebug_fujinet_state(colecodebug *d, char *dst, int dstsz);
 
 /* ---- symbols --------------------------------------------------------------
  * .sym format: "HHHH NAME [; comment]" per line, '#' comments. The built-in

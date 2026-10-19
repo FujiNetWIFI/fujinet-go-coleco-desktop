@@ -29,9 +29,11 @@ there is marked done on "it compiles".
   timeline with the SN76489, and the 24K RAM expansion. A machine without one
   is genuinely bare — 1K at `$6000-$7FFF` mirrored four times, open bus below.
 - **A debugger in all four frontends** over one shared engine: CPU / VDP /
-  Trace tabs, breakpoints by symbol, a trace ring, a live VRAM dump you can
-  poke, and the full VDP decode — name table, pattern banks, sprites with
-  their attribute table, and the palette, all rendered from live VRAM.
+  Trace / FujiNet tabs, breakpoints by symbol, a trace ring, a live VRAM dump
+  you can poke, and the full VDP decode — name table, pattern banks, sprites
+  with their attribute table, and the palette, all rendered from live VRAM.
+  The FujiNet tab shows every FujiBus packet between the cartridge and
+  FujiNet, both ways, with hex, recorded from the moment the machine starts.
 - **A clickable controller panel** showing both hand controllers, with every
   control remappable. Buttons are *held*, not pulsed: the machine samples the
   controller once a frame, so a value present for only an instant falls

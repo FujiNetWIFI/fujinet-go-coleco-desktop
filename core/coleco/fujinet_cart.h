@@ -31,6 +31,7 @@
 #ifndef COLECO_FUJINET_CART_H
 #define COLECO_FUJINET_CART_H
 
+#include <stddef.h>
 #include <stdint.h>
 
 #include "adamcore.h"
@@ -69,6 +70,34 @@ int coleco_cart_link_up(const coleco_cart *c);
 
 /* What the served image was mapped as, for a status display or debugger. */
 colmap_kind_t coleco_cart_kind(const coleco_cart *c);
+
+/* The cartridge as the debugger shows it. Read from the UI thread while the
+ * machine runs, so each field is current but the set is only loosely so. */
+typedef struct {
+    char hostport[128];        /* the BoIP listener it dials */
+    int link_up;
+    int mailbox_live;
+    colmap_kind_t kind;        /* the image being served */
+    uint32_t size;
+    uint8_t bank;              /* MegaCart / Activision: the live 16K bank */
+    int staged;                /* a pushed image waits for the swap */
+    int swap_armed;
+    colmap_kind_t staged_kind;
+    uint32_t staged_size;
+    /* the mailbox status page, as the console reads it */
+    uint8_t ackseq, status, err, reply_cmd;
+    uint16_t rxlen;
+    uint8_t boot_state, boot_pct, boot_err;
+} coleco_cart_info;
+void coleco_cart_get_info(const coleco_cart *c, coleco_cart_info *out);
+
+/* The debugger's FujiNet trace: every FujiBus frame the cartridge sends or
+ * receives, as SLIP bytes. dir 1 is ColecoVision -> FujiNet, dir 0 the
+ * other way. Called on the emulator thread; set it before the machine
+ * starts. One per process, like the cartridge; NULL removes it. */
+typedef void (*coleco_cart_trace_fn)(void *user, int dir, const uint8_t *buf,
+                                     size_t len);
+void coleco_cart_set_trace(coleco_cart_trace_fn fn, void *user);
 
 #ifdef __cplusplus
 }

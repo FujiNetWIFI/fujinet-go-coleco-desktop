@@ -160,6 +160,10 @@ int colecosession_start(colecosession *s, const colecosession_start_opts *opts)
     /* "" means no cartridge device at all -- a bare ColecoVision. */
     hopts.fujinet_hostport = opts->enable_fujinet ? s->boip_hostport : "";
 
+    /* The debugger's FujiNet trace records from the first transaction, open
+     * or not: creating the engine installs its tap before the machine runs. */
+    (void)colecosession_debugger(s);
+
     rc = coleco_host_start(&hopts);
     free(cart);
     if (rc != 0) {

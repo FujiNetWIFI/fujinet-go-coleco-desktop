@@ -1,9 +1,10 @@
 /*
  * Debugger window (AppKit): disassembly with click-to-toggle breakpoints,
- * editable registers, memory view, breakpoints, instruction trace, and the
- * VDP visualizers, over the shared colecodebug engine -- the same layout as
- * the GTK and Qt debuggers. Stop events arrive on the emulator thread and
- * are marshaled here with dispatch_async onto the main queue.
+ * editable registers, memory view, breakpoints, instruction trace, the VDP
+ * visualizers, and the FujiNet tab (every FujiBus packet the cartridge sends
+ * or receives, with hex), over the shared colecodebug engine -- the same
+ * layout as the GTK and Qt debuggers. Stop events arrive on the emulator
+ * thread and are marshaled here with dispatch_async onto the main queue.
  *
  * Copyright (C) 2026 Thomas Cherryhomes
  * SPDX-License-Identifier: GPL-3.0-or-later
@@ -17,6 +18,10 @@
 #define MEM_ROWS 16
 #define VRAM_ROWS 24
 #define POKE_MAX 64
+#define FUJI_MAX 512
+
+/* Tab order. FujiNet is last so COLECO_DEBUGGER_TAB numbers hold. */
+enum { TAB_CPU, TAB_VDP, TAB_VRAM, TAB_TRACE, TAB_FUJINET };
 
 static DebuggerWindow *g_debugger;
 
@@ -48,11 +53,12 @@ static DebuggerWindow *g_debugger;
 }
 @end
 
-@interface DebuggerWindow () <NSWindowDelegate>
+@interface DebuggerWindow () <NSWindowDelegate, NSTabViewDelegate>
 - (instancetype)initWithSession:(colecosession *)session;
 - (void)onStopped:(colecodebug_stop_reason)reason pc:(uint16_t)pc;
 - (void)refreshDisasm;
 - (void)refreshBps;
+- (void)refreshFujinet:(BOOL)force;
 @end
 
 @implementation DebuggerWindow {
@@ -87,7 +93,16 @@ static DebuggerWindow *g_debugger;
     NSTextView *_vramView;
     uint16_t _vramBase;
 
+    NSTabView *_tabs;
+    NSTextField *_fujiNote;
+    NSTextView *_fujiText;
+    NSTextView *_fujiState;
+    int _fujiCount;     /* what the log shows: rebuilt when these change */
+    uint64_t _fujiLast;
+    BOOL _fujiFollow;   /* the log keeps to its end */
+
     NSTimer *_tick;
+    int _runningTicks;
 }
 
 static const char *const kRegNames[8] = {"AF", "BC", "DE", "HL",
@@ -163,6 +178,8 @@ static void stop_trampoline(void *ud, colecodebug_stop_reason reason,
     _dbg = colecosession_debugger(session);
     _followPc = YES;
     _memBase = 0xFC30;
+    _fujiCount = -1;
+    _fujiFollow = YES;
     [self buildWindow];
     colecodebug_set_stop_callback(_dbg, stop_trampoline,
                                 (__bridge void *)self);
@@ -182,6 +199,13 @@ static void stop_trampoline(void *ud, colecodebug_stop_reason reason,
     if (!colecodebug_is_paused(_dbg)) {
         [self refreshVdp];
         [self refreshRegs];
+        /* the FujiNet log twice a second, while it shows */
+        if (++_runningTicks >= 5) {
+            _runningTicks = 0;
+            if ([_tabs indexOfTabViewItem:_tabs.selectedTabViewItem] ==
+                TAB_FUJINET)
+                [self refreshFujinet:NO];
+        }
     }
 }
 
@@ -417,6 +441,58 @@ static NSTextView *monoView(NSScrollView **scrollOut)
     NSScrollView *traceScroll;
     _traceView = monoView(&traceScroll);
 
+    /* FujiNet tab: the packet log (a note and Clear over it) and the
+     * cartridge's state beside it. The log does not wrap: a packet's hex
+     * runs to 64 bytes on one line. */
+    _fujiNote = [self label:@""];
+    [_fujiNote setContentHuggingPriority:NSLayoutPriorityDefaultLow
+                          forOrientation:NSLayoutConstraintOrientationHorizontal];
+    NSButton *fujiClear = [self button:@"Clear" action:@selector(fujiClear:)];
+    NSStackView *fujiRow =
+        [NSStackView stackViewWithViews:@[ _fujiNote, fujiClear ]];
+    fujiRow.orientation = NSUserInterfaceLayoutOrientationHorizontal;
+    NSScrollView *fujiScroll;
+    _fujiText = monoView(&fujiScroll);
+    fujiScroll.hasHorizontalScroller = YES;
+    _fujiText.horizontallyResizable = YES;
+    _fujiText.maxSize = NSMakeSize(FLT_MAX, FLT_MAX);
+    _fujiText.textContainer.widthTracksTextView = NO;
+    _fujiText.textContainer.size = NSMakeSize(FLT_MAX, FLT_MAX);
+    _fujiText.autoresizingMask = NSViewWidthSizable | NSViewHeightSizable;
+    /* New text grows the view only once it is laid out (or its tab first
+     * shows), so a following log is pinned whenever its frame changes. */
+    _fujiText.postsFrameChangedNotifications = YES;
+    [[NSNotificationCenter defaultCenter]
+        addObserver:self
+           selector:@selector(fujiTextResized:)
+               name:NSViewFrameDidChangeNotification
+             object:_fujiText];
+    NSStackView *fujiLeft = [NSStackView stackViewWithViews:@[
+        [self label:@"FujiBus packets (SLIP-decoded)"], fujiRow, fujiScroll
+    ]];
+    fujiLeft.orientation = NSUserInterfaceLayoutOrientationVertical;
+    fujiLeft.alignment = NSLayoutAttributeLeading;
+    fujiLeft.spacing = 6;
+    [fujiRow.widthAnchor constraintEqualToAnchor:fujiLeft.widthAnchor]
+        .active = YES;
+    [fujiScroll.widthAnchor constraintEqualToAnchor:fujiLeft.widthAnchor]
+        .active = YES;
+    [fujiLeft.widthAnchor constraintGreaterThanOrEqualToConstant:560].active =
+        YES;
+    NSScrollView *fujiStateScroll;
+    _fujiState = monoView(&fujiStateScroll);
+    [fujiStateScroll.widthAnchor constraintEqualToConstant:340].active = YES;
+    NSStackView *fujiRight = [NSStackView stackViewWithViews:@[
+        [self label:@"FujiNet cartridge"], fujiStateScroll
+    ]];
+    fujiRight.orientation = NSUserInterfaceLayoutOrientationVertical;
+    fujiRight.alignment = NSLayoutAttributeLeading;
+    fujiRight.spacing = 6;
+    NSSplitView *fujiSplit = [[NSSplitView alloc] init];
+    fujiSplit.vertical = YES;
+    [fujiSplit addArrangedSubview:fujiLeft];
+    [fujiSplit addArrangedSubview:fujiRight];
+
     NSTabView *tabs = [[NSTabView alloc] init];
     NSTabViewItem *cpuItem = [NSTabViewItem tabViewItemWithViewController:nil];
     cpuItem.label = @"CPU";
@@ -436,6 +512,25 @@ static NSTextView *monoView(NSScrollView **scrollOut)
     traceItem.label = @"Trace";
     traceItem.view = traceScroll;
     [tabs addTabViewItem:traceItem];
+    NSTabViewItem *fujiItem =
+        [NSTabViewItem tabViewItemWithViewController:nil];
+    fujiItem.label = @"FujiNet";
+    fujiItem.view = fujiSplit;
+    [tabs addTabViewItem:fujiItem];
+
+    /* Dev affordance: COLECO_DEBUGGER_TAB=vdp|vram|trace|fujinet picks the
+     * start tab. */
+    const char *tab = getenv("COLECO_DEBUGGER_TAB");
+    if (tab && !strcmp(tab, "vdp"))
+        [tabs selectTabViewItemAtIndex:TAB_VDP];
+    else if (tab && !strcmp(tab, "vram"))
+        [tabs selectTabViewItemAtIndex:TAB_VRAM];
+    else if (tab && !strcmp(tab, "trace"))
+        [tabs selectTabViewItemAtIndex:TAB_TRACE];
+    else if (tab && !strcmp(tab, "fujinet"))
+        [tabs selectTabViewItemAtIndex:TAB_FUJINET];
+    tabs.delegate = self;
+    _tabs = tabs;
 
     NSStackView *root = [NSStackView stackViewWithViews:@[ toolbar, tabs ]];
     root.orientation = NSUserInterfaceLayoutOrientationVertical;
@@ -542,6 +637,28 @@ static NSTextView *monoView(NSScrollView **scrollOut)
     [self refreshDisasm];
 }
 
+- (void)fujiClear:(id)sender
+{
+    (void)sender;
+    colecodebug_fujinet_trace_clear(_dbg);
+    [self refreshFujinet:YES];
+}
+
+- (void)fujiTextResized:(NSNotification *)note
+{
+    (void)note;
+    if (_fujiFollow)
+        [_fujiText scrollRangeToVisible:NSMakeRange(_fujiText.string.length, 0)];
+}
+
+- (void)tabView:(NSTabView *)tabView didSelectTabViewItem:(NSTabViewItem *)item
+{
+    if ([tabView indexOfTabViewItem:item] != TAB_FUJINET)
+        return;
+    [item.view layoutSubtreeIfNeeded];
+    [self refreshFujinet:NO];
+}
+
 - (void)toggleTrace:(NSButton *)sender
 {
     colecodebug_trace_enable(_dbg, sender.state == NSControlStateValueOn);
@@ -589,6 +706,7 @@ static NSTextView *monoView(NSScrollView **scrollOut)
     [self refreshBps];
     [self refreshTrace];
     [self refreshVdp];
+    [self refreshFujinet:NO];
     _pauseBtn.title = colecodebug_is_paused(_dbg) ? @"Continue (F5)"
                                                 : @"Pause (F5)";
 }
@@ -722,6 +840,68 @@ static NSTextView *monoView(NSScrollView **scrollOut)
     colecovdp_format_hex(&snap, _vramBase, VRAM_ROWS, stateText,
                        (int)sizeof(stateText));
     _vramView.string = @(stateText);
+}
+
+/* Whether a view's reader is at its end (a log then follows new lines). */
+static BOOL atEnd(NSTextView *view)
+{
+    NSScrollView *scroll = view.enclosingScrollView;
+    if (!scroll)
+        return YES;
+    return NSMaxY(scroll.contentView.documentVisibleRect) >=
+           NSHeight(view.frame) - 4;
+}
+
+/* Replaces a view's text where the reader left it (a refresh must not throw
+ * a scrolled view back to its top), or, following, at its end. */
+static void setText(NSTextView *view, NSString *text, BOOL follow)
+{
+    if (![view.string isEqualToString:text]) {
+        NSScrollView *scroll = view.enclosingScrollView;
+        const NSPoint at =
+            scroll ? scroll.contentView.bounds.origin : NSZeroPoint;
+        view.string = text;
+        if (scroll && !follow) {
+            [scroll.contentView scrollToPoint:at];
+            [scroll reflectScrolledClipView:scroll.contentView];
+        }
+    }
+    if (follow)
+        [view scrollRangeToVisible:NSMakeRange(view.string.length, 0)];
+}
+
+/* The log is rebuilt only when it has changed; the state pane always. */
+- (void)refreshFujinet:(BOOL)force
+{
+    static coleco_fuji_packet p[FUJI_MAX];
+    static char state[2048];
+    int n = colecodebug_fujinet_trace(_dbg, p, FUJI_MAX);
+
+    if (!colecosession_fujinet_running(_session))
+        _fujiNote.stringValue = @"FujiNet is off (Preferences ▸ FujiNet).";
+    else
+        _fujiNote.stringValue = colecosession_cart_link_up(_session)
+                                    ? @"FujiNet cartridge, connected."
+                                    : @"FujiNet cartridge, not connected.";
+    colecodebug_fujinet_state(_dbg, state, (int)sizeof(state));
+    setText(_fujiState, @(state), NO);
+
+    if (!force && n == _fujiCount && (n == 0 || p[n - 1].serial == _fujiLast))
+        return;
+    _fujiCount = n;
+    _fujiLast = n > 0 ? p[n - 1].serial : 0;
+    _fujiFollow = force || atEnd(_fujiText);
+    NSMutableString *text = [NSMutableString string];
+    for (int i = 0; i < n; i++) {
+        [text appendFormat:@"%@%@\n     ", i ? @"\n" : @"", @(p[i].text)];
+        for (int k = 0; k < p[i].nbytes && k < (int)sizeof p[i].data; k++)
+            [text appendFormat:@"%02X ", p[i].data[k]];
+        if (p[i].nbytes > (int)sizeof p[i].data)
+            [text appendString:@"…"];
+    }
+    if (n == 0)
+        [text appendString:@"(no FujiBus packets since the trace was cleared)"];
+    setText(_fujiText, text, _fujiFollow);
 }
 
 /* One field does both jobs: an address alone scrolls the dump there, an

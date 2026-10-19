@@ -1,8 +1,8 @@
 /*
  * colecodebug engine: execution control (pause / step into/over/out /
  * run-to), breakpoint management, the instruction-history ring, symbol
- * annotation, and the emulator-thread frame driver the session switches to
- * while the debugger is engaged.
+ * annotation, the FujiNet trace, and the emulator-thread frame driver the
+ * session switches to while the debugger is engaged.
  *
  * Execution model: all core mutation happens on the emulator thread.
  * Control calls from the UI thread flip state under the engine mutex and
@@ -15,11 +15,16 @@
  */
 
 #include <pthread.h>
+#include <stdarg.h>
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
+#include "../coleco/fujinet_cart.h"
 #include "../coleco/host.h"
 #include "colecodebug.h"
+#include "fuji_mailbox.h"
+#include "fujitrace.h"
 #include "symbols.h"
 #include "z80dasm.h"
 
@@ -67,6 +72,11 @@ struct colecodebug {
     int ring_filled;
 
     sym_tables syms;
+
+    /* The FujiNet trace, fed by the cartridge on the emulator thread. Its own
+     * lock, so the tap never waits on the pause machinery. */
+    pthread_mutex_t fuji_mtx;
+    fujitrace fuji;
 };
 
 /* ---- engagement ----------------------------------------------------------- */
@@ -274,6 +284,15 @@ void colecodebug_resume_for_stop(colecodebug *d)
  * owns. */
 static pthread_mutex_t g_create_mtx = PTHREAD_MUTEX_INITIALIZER;
 
+/* The cartridge's trace tap (emulator thread). */
+static void fuji_tap(void *user, int dir, const uint8_t *buf, size_t len)
+{
+    colecodebug *d = user;
+    pthread_mutex_lock(&d->fuji_mtx);
+    fujitrace_feed(&d->fuji, dir, buf, len);
+    pthread_mutex_unlock(&d->fuji_mtx);
+}
+
 colecodebug *colecosession_debugger(colecosession *s)
 {
     (void)s;
@@ -288,6 +307,10 @@ colecodebug *colecosession_debugger(colecosession *s)
             symtabs_load_text(&d->syms, colecodebug_builtin_os7_sym, "os7");
             /* The stepped frame path the paced loop calls while engaged. */
             coleco_host_set_frame_fn(colecodebug_host_frame);
+            /* The FujiNet trace is always on: colecosession_start creates
+             * the engine before the machine for this. */
+            pthread_mutex_init(&d->fuji_mtx, NULL);
+            coleco_cart_set_trace(fuji_tap, d);
             g_debugger = d;
         }
     }
@@ -648,6 +671,133 @@ void colecodebug_trace_clear(colecodebug *d)
     d->ring_w = 0;
     d->ring_filled = 0;
     pthread_mutex_unlock(&d->mtx);
+}
+
+/* ---- FujiNet ---------------------------------------------------------------- */
+
+int colecodebug_fujinet_trace(colecodebug *d, coleco_fuji_packet *out, int max)
+{
+    int n;
+    pthread_mutex_lock(&d->fuji_mtx);
+    n = fujitrace_read(&d->fuji, out, max);
+    pthread_mutex_unlock(&d->fuji_mtx);
+    return n;
+}
+
+void colecodebug_fujinet_trace_clear(colecodebug *d)
+{
+    pthread_mutex_lock(&d->fuji_mtx);
+    fujitrace_clear(&d->fuji);
+    pthread_mutex_unlock(&d->fuji_mtx);
+}
+
+static const char *boot_err_name(int e)
+{
+    switch (e) {
+    case FN_BOOT_ERR_TOOBIG: return "too big";
+    case FN_BOOT_ERR_TRUNCATED: return "truncated";
+    case FN_BOOT_ERR_NOMAP: return "no mapper fits";
+    case FN_BOOT_ERR_STOREBUSY: return "store busy";
+    default: return "error";
+    }
+}
+
+static const char *txn_err_name(int e)
+{
+    switch (e) {
+    case FN_ERR_OK: return "ok";
+    case FN_ERR_NOLINK: return "no link";
+    case FN_ERR_TIMEOUT: return "timeout";
+    case FN_ERR_BADFRAME: return "bad frame";
+    case FN_ERR_TOOBIG: return "too big";
+    default: return "?";
+    }
+}
+
+/* Bounded append, as in vdpview.c: the cursor never passes max-1. */
+static void appendf(char *out, int max, int *pos, const char *fmt, ...)
+{
+    va_list ap;
+    int n;
+
+    if (*pos >= max - 1)
+        return;
+    va_start(ap, fmt);
+    n = vsnprintf(out + *pos, (size_t)(max - *pos), fmt, ap);
+    va_end(ap);
+    if (n < 0)
+        return;
+    *pos += (n >= max - *pos) ? (max - *pos - 1) : n;
+}
+
+int colecodebug_fujinet_state(colecodebug *d, char *dst, int dstsz)
+{
+    coleco_cart *c = coleco_host_cart();
+    coleco_cart_info ci;
+    uint32_t packets[2];
+    uint64_t bytes[2];
+    int pos = 0;
+
+    if (dstsz <= 0)
+        return 0;
+    dst[0] = '\0';
+    pthread_mutex_lock(&d->fuji_mtx);
+    packets[0] = d->fuji.packets[0];
+    packets[1] = d->fuji.packets[1];
+    bytes[0] = d->fuji.bytes[0];
+    bytes[1] = d->fuji.bytes[1];
+    pthread_mutex_unlock(&d->fuji_mtx);
+
+    if (!c) {
+        appendf(dst, dstsz, &pos, "No cartridge: the machine is off,\n"
+                                  "or FujiNet is off.\n");
+    } else {
+        coleco_cart_get_info(c, &ci);
+        appendf(dst, dstsz, &pos, "Link       %s, %s\n", ci.hostport,
+                ci.link_up ? "up" : "down");
+        appendf(dst, dstsz, &pos, "Serving    %s, %u bytes",
+                colmap_kindname(ci.kind), (unsigned)ci.size);
+        if (ci.kind == COLMAP_MEGACART || ci.kind == COLMAP_ACTIVISION)
+            appendf(dst, dstsz, &pos, ", bank %u", ci.bank);
+        appendf(dst, dstsz, &pos, "\n");
+        if (ci.staged)
+            appendf(dst, dstsz, &pos, "Staged     %s, %u bytes%s\n",
+                    colmap_kindname(ci.staged_kind), (unsigned)ci.staged_size,
+                    ci.swap_armed ? ", swap armed" : "");
+        else
+            appendf(dst, dstsz, &pos, "Staged     nothing\n");
+        if (!ci.mailbox_live) {
+            /* a plain ROM, or a game swapped in over the CONFIG client */
+            appendf(dst, dstsz, &pos, "Mailbox    off (no FUJI claim)\n");
+        } else {
+            appendf(dst, dstsz, &pos, "Mailbox    live\n");
+            appendf(dst, dstsz, &pos, "ACKSEQ     %02X\n", ci.ackseq);
+            appendf(dst, dstsz, &pos, "Status     %02X%s%s\n", ci.status,
+                    (ci.status & FN_R_STATUS_LINK) ? " link" : "",
+                    (ci.status & FN_R_STATUS_BUSY) ? " busy" : "");
+            appendf(dst, dstsz, &pos, "Last reply %s, %u bytes, %s\n",
+                    ci.reply_cmd == 0x06   ? "ACK"
+                    : ci.reply_cmd == 0x15 ? "NAK"
+                                           : "none",
+                    (unsigned)ci.rxlen, txn_err_name(ci.err));
+            if (ci.boot_state == FN_BOOT_IDLE)
+                appendf(dst, dstsz, &pos, "Boot       idle\n");
+            else if (ci.boot_state == FN_BOOT_XFER)
+                appendf(dst, dstsz, &pos, "Boot       receiving, %u%%\n",
+                        ci.boot_pct);
+            else if (ci.boot_state == FN_BOOT_READY)
+                appendf(dst, dstsz, &pos, "Boot       image ready\n");
+            else
+                appendf(dst, dstsz, &pos, "Boot       failed (%s)\n",
+                        boot_err_name(ci.boot_err));
+        }
+    }
+    appendf(dst, dstsz, &pos, "\nSince the trace was cleared\n");
+    appendf(dst, dstsz, &pos, "Sent       %u packets, %llu bytes\n",
+            (unsigned)packets[0], (unsigned long long)bytes[0]);
+    appendf(dst, dstsz, &pos, "Received   %u packets, %llu bytes\n",
+            (unsigned)packets[1], (unsigned long long)bytes[1]);
+    return pos;
 }
 
 /* ---- symbols ---------------------------------------------------------------- */
