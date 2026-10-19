@@ -47,7 +47,15 @@
     <!-- The CURRENT release templates its version from @PROJECT_VERSION@, so
          it cannot disagree with the tree; past releases are literal. The
          release job checks that this first entry is still a template. -->
-    <release version="@PROJECT_VERSION@" date="2026-10-03">
+    <release version="@PROJECT_VERSION@" date="2026-10-19">
+      <description>
+        <p>
+          Debugger: a FujiNet tab shows every FujiBus packet between the
+          ColecoVision's FujiNet cartridge and FujiNet, both ways, with hex.
+        </p>
+      </description>
+    </release>
+    <release version="0.3.1" date="2026-10-03">
       <description>
         <p>
           Games run at the correct speed again. The emulator was following
