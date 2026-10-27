@@ -61,6 +61,11 @@ MainWindow::MainWindow(colecosession *session, QWidget *parent)
         toggleKeypad();
     if (qEnvironmentVariableIsSet("COLECO_OPEN_DEBUGGER"))
         DebuggerWindow::showFor(this, session);
+    /* COLECO_OPEN_SETTINGS opens Preferences once the event loop runs (the
+     * dialog is modal). Modifier shortcuts cannot be injected into a Qt
+     * Wayland window, so this is how a headless check reaches it. */
+    if (qEnvironmentVariableIsSet("COLECO_OPEN_SETTINGS"))
+        QTimer::singleShot(0, this, &MainWindow::showSettings);
 
     if (!colecosession_bios_available(session))
         statusBar()->showMessage(
