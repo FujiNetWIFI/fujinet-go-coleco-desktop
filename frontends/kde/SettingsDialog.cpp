@@ -12,6 +12,8 @@
 #include <QFormLayout>
 #include <QGroupBox>
 #include <QLabel>
+#include <QLineEdit>
+#include <QMessageBox>
 #include <QVBoxLayout>
 
 /* Same four TMS9928A palettes the GNOME dialog offers, in the same order:
@@ -78,6 +80,19 @@ bool SettingsDialog::run(QWidget *parent, colecosession *session)
                             "into. Off means no network and no CONFIG client.",
                             session, "enable_fujinet", 1);
     nform->addRow(fuji);
+    QCheckBox *external = check("Use external FujiNet",
+                                "Skip the built-in FujiNet and dial another "
+                                "instance at this address. Set that "
+                                "instance's BoIP listener to match.",
+                                session, "fujinet_external", 0);
+    nform->addRow(external);
+    auto *externalAddr = new QLineEdit(QString::fromUtf8(
+        colecosession_get_str(session, "fujinet_external_addr", "")));
+    externalAddr->setPlaceholderText(QStringLiteral("127.0.0.1:11502"));
+    externalAddr->setEnabled(external->isChecked());
+    QObject::connect(external, &QCheckBox::toggled, externalAddr,
+                     &QWidget::setEnabled);
+    nform->addRow(QStringLiteral("Address:port"), externalAddr);
     outer->addWidget(net);
 
     auto *host = new QGroupBox(QStringLiteral("Host"));
@@ -97,8 +112,23 @@ bool SettingsDialog::run(QWidget *parent, colecosession *session)
 
     auto *buttons = new QDialogButtonBox(QDialogButtonBox::Ok |
                                          QDialogButtonBox::Cancel);
-    QObject::connect(buttons, &QDialogButtonBox::accepted, &dlg,
-                     &QDialog::accept);
+    QObject::connect(buttons, &QDialogButtonBox::accepted, &dlg, [&] {
+        char host[64];
+        int port;
+        if (external->isChecked() &&
+            colecosession_parse_hostport(
+                externalAddr->text().trimmed().toUtf8().constData(), host,
+                sizeof host, &port) != 0) {
+            QMessageBox::warning(
+                &dlg, QStringLiteral("External FujiNet"),
+                QStringLiteral("\"%1\" is not an address:port. Example: "
+                               "127.0.0.1:11502")
+                    .arg(externalAddr->text()));
+            externalAddr->setFocus();
+            return;
+        }
+        dlg.accept();
+    });
     QObject::connect(buttons, &QDialogButtonBox::rejected, &dlg,
                      &QDialog::reject);
     outer->addWidget(buttons);
@@ -111,6 +141,17 @@ bool SettingsDialog::run(QWidget *parent, colecosession *session)
     changed |= commit(session, "palette", 0, palette->currentIndex());
     changed |= commit(session, "swap_buttons", 0, swap->isChecked() ? 1 : 0);
     changed |= commit(session, "enable_fujinet", 1, fuji->isChecked() ? 1 : 0);
+    changed |= commit(session, "fujinet_external", 0,
+                      external->isChecked() ? 1 : 0);
+    {
+        const QByteArray addr = externalAddr->text().trimmed().toUtf8();
+        if (addr != QByteArray(colecosession_get_str(
+                        session, "fujinet_external_addr", ""))) {
+            colecosession_set_str(session, "fujinet_external_addr",
+                                  addr.constData());
+            changed = true;
+        }
+    }
     changed |= commit(session, "enable_audio", 1, audio->isChecked() ? 1 : 0);
     changed |= commit(session, "enable_gamepad", 1, pads->isChecked() ? 1 : 0);
     return changed;

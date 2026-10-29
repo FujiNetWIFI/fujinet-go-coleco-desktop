@@ -81,6 +81,7 @@
     NSTextField *_status;
     NSTimer *_statusTimer;
     NSWindow *_settingsWindow;
+    NSTextField *_externalField;
     BOOL _sessionDirty;
     NSWindow *_logWindow;
     NSTextView *_logView;
@@ -322,6 +323,28 @@
 
     colecosession_set_int(_session, [key UTF8String], value);
     _sessionDirty = YES;
+    if ([key isEqualToString:@"fujinet_external"])
+        _externalField.enabled = value != 0;
+}
+
+/* The external-FujiNet address field: valid text (or none, meaning
+ * 127.0.0.1:11502) is saved; anything else is shown in red and not saved. */
+- (void)externalAddrChanged:(id)sender
+{
+    NSTextField *field = sender;
+    NSString *text = [field.stringValue
+        stringByTrimmingCharactersInSet:NSCharacterSet
+                                            .whitespaceAndNewlineCharacterSet];
+    char host[64];
+    int port;
+    if (colecosession_parse_hostport(text.UTF8String, host, sizeof host,
+                                     &port) != 0) {
+        field.textColor = NSColor.systemRedColor;
+        return;
+    }
+    field.textColor = NSColor.controlTextColor;
+    colecosession_set_str(_session, "fujinet_external_addr", text.UTF8String);
+    _sessionDirty = YES;
 }
 
 - (void)showSettings:(id)sender
@@ -331,6 +354,16 @@
         [_settingsWindow makeKeyAndOrderFront:nil];
         return;
     }
+
+    _externalField = [NSTextField textFieldWithString:@(
+        colecosession_get_str(_session, "fujinet_external_addr", ""))];
+    _externalField.placeholderString = @"127.0.0.1:11502";
+    _externalField.preferredMaxLayoutWidth = 240;
+    _externalField.enabled =
+        colecosession_get_int(_session, "fujinet_external", 0) != 0;
+    _externalField.target = self;
+    _externalField.action = @selector(externalAddrChanged:);
+    [_externalField.cell setSendsActionOnEndEditing:YES];
 
     NSArray<NSArray<NSView *> *> *rows = @[
         @[ [self sectionLabel:@"Machine"], [NSTextField labelWithString:@""] ],
@@ -356,6 +389,11 @@
             [NSTextField labelWithString:@"Enable FujiNet"],
             [self checkBoxForKey:"enable_fujinet" fallback:1]
         ],
+        @[
+            [NSTextField labelWithString:@"Use external FujiNet"],
+            [self checkBoxForKey:"fujinet_external" fallback:0]
+        ],
+        @[ [NSTextField labelWithString:@"Address:port"], _externalField ],
         @[ [self sectionLabel:@"Host"], [NSTextField labelWithString:@""] ],
         @[
             [NSTextField labelWithString:@"Audio"],
@@ -409,6 +447,8 @@
         _logTimer = nil;
         return;
     }
+    if (note.object == _settingsWindow)
+        [_settingsWindow makeFirstResponder:nil]; /* commit a field edit */
     if (note.object != _settingsWindow || !_sessionDirty)
         return;
     _sessionDirty = NO;
@@ -555,6 +595,14 @@
 - (void)showFujiNetLog:(id)sender
 {
     (void)sender;
+    if (colecosession_fujinet_external(_session)) {
+        NSAlert *a = [[NSAlert alloc] init];
+        [a setMessageText:@"FujiNet is external"];
+        [a setInformativeText:@"Its console output is in the process that "
+                              @"is running it."];
+        [a runModal];
+        return;
+    }
     if (_logWindow) {
         [_logWindow makeKeyAndOrderFront:nil];
         return;
@@ -599,6 +647,14 @@
 - (void)openWebUI:(id)sender
 {
     (void)sender;
+    if (colecosession_fujinet_external(_session)) {
+        NSAlert *a = [[NSAlert alloc] init];
+        [a setMessageText:@"FujiNet is external"];
+        [a setInformativeText:@"Use the web UI of the FujiNet instance this "
+                              @"app dials."];
+        [a runModal];
+        return;
+    }
     if (!colecosession_fujinet_running(_session)) {
         NSAlert *a = [[NSAlert alloc] init];
         [a setMessageText:@"FujiNet is not running"];

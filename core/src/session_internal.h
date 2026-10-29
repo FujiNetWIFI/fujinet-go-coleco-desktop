@@ -33,7 +33,7 @@ struct colecosession {
     pthread_mutex_t settings_mtx;
     int settings_dirty;
 
-    char boip_hostport[64];   /* "127.0.0.1:11500" -- handed to the cart */
+    char boip_hostport[80];   /* "127.0.0.1:11502" -- handed to the cart */
     char last_error[256];
 
     /* ---- FujiNet runtime (fujinet_runtime.c) ---- */
@@ -44,6 +44,7 @@ struct colecosession {
     char fujinet_lib[COLECO_PATH_MAX];     /* resolved libfujinet path, "" until then */
     char webui_url[64];                   /* http://127.0.0.1:11501/ */
     int  fujinet_running;
+    int  fujinet_external;                /* dialing a FujiNet that isn't ours */
 
     /* cross-thread system-action latch (see colecosession_sysaction_post) */
     pthread_mutex_t sysact_mtx;

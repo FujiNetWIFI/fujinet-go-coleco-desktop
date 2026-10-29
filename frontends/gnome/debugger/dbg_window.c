@@ -376,7 +376,14 @@ static void refresh_fujinet(DbgWin *w, gboolean force)
     GString *t;
     int n = colecodebug_fujinet_trace(w->dbg, p, FUJI_MAX), i;
 
-    if (!colecosession_fujinet_running(w->session))
+    if (colecosession_fujinet_external(w->session)) {
+        char note[200];
+        g_snprintf(note, sizeof note, "External FujiNet at %s, %s.",
+                   colecosession_boip_endpoint(w->session),
+                   colecosession_cart_link_up(w->session) ? "connected"
+                                                          : "not connected");
+        gtk_label_set_text(w->fuji_note, note);
+    } else if (!colecosession_fujinet_running(w->session))
         gtk_label_set_text(w->fuji_note,
                            "FujiNet is off (Preferences \xe2\x96\xb8 FujiNet).");
     else

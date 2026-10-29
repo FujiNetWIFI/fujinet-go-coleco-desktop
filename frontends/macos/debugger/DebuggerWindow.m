@@ -877,7 +877,11 @@ static void setText(NSTextView *view, NSString *text, BOOL follow)
     static char state[2048];
     int n = colecodebug_fujinet_trace(_dbg, p, FUJI_MAX);
 
-    if (!colecosession_fujinet_running(_session))
+    if (colecosession_fujinet_external(_session))
+        _fujiNote.stringValue = [NSString stringWithFormat:@"External FujiNet at %s, %@.",
+                                 colecosession_boip_endpoint(_session),
+                                 colecosession_cart_link_up(_session) ? @"connected" : @"not connected"];
+    else if (!colecosession_fujinet_running(_session))
         _fujiNote.stringValue = @"FujiNet is off (Preferences ▸ FujiNet).";
     else
         _fujiNote.stringValue = colecosession_cart_link_up(_session)

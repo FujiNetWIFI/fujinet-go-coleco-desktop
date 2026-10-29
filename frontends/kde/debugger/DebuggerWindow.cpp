@@ -703,7 +703,12 @@ void DebuggerWindow::refreshFujinet(bool force)
     static char state[2048];
     const int n = colecodebug_fujinet_trace(m_dbg, p, kFujiMax);
 
-    if (!colecosession_fujinet_running(m_session))
+    if (colecosession_fujinet_external(m_session))
+        m_fujiNote->setText(QStringLiteral("External FujiNet at %1, %2.")
+                                .arg(QString::fromUtf8(colecosession_boip_endpoint(m_session)),
+                                     colecosession_cart_link_up(m_session) ? QStringLiteral("connected")
+                                                                           : QStringLiteral("not connected")));
+    else if (!colecosession_fujinet_running(m_session))
         m_fujiNote->setText(QStringLiteral("FujiNet is off (Preferences ▸ FujiNet)."));
     else
         m_fujiNote->setText(colecosession_cart_link_up(m_session)

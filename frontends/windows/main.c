@@ -34,6 +34,10 @@
 #include "key_forward.h"
 #include "resource.h"
 
+#ifndef EM_SETCUEBANNER
+#define EM_SETCUEBANNER 0x1501
+#endif
+
 #define WIN_CLASS "FujiNetGoColecoVision"
 
 static colecosession *g_session;
@@ -281,6 +285,14 @@ static LRESULT CALLBACK settings_proc(HWND hwnd, UINT msg, WPARAM wp,
         case IDC_SET_FUJINET:
             settings_apply_checkbox(hwnd, IDC_SET_FUJINET, "enable_fujinet", 1);
             return 0;
+        case IDC_SET_EXTERNAL:
+            settings_apply_checkbox(hwnd, IDC_SET_EXTERNAL, "fujinet_external",
+                                    0);
+            EnableWindow(GetDlgItem(hwnd, IDC_SET_EXT_ADDR),
+                         SendDlgItemMessageA(hwnd, IDC_SET_EXTERNAL,
+                                             BM_GETCHECK, 0, 0) ==
+                             BST_CHECKED);
+            return 0;
         case IDC_SET_AUDIO:
             settings_apply_checkbox(hwnd, IDC_SET_AUDIO, "enable_audio", 1);
             return 0;
@@ -291,9 +303,37 @@ static LRESULT CALLBACK settings_proc(HWND hwnd, UINT msg, WPARAM wp,
             break;
         }
         break;
-    case WM_CLOSE:
+    case WM_CLOSE: {
+        /* The external address is saved here, and only if it is one. */
+        char addr[96], host[64];
+        const char *old;
+        int port;
+        {
+            char *first = addr, *last;
+            GetDlgItemTextA(hwnd, IDC_SET_EXT_ADDR, addr, sizeof addr);
+            while (*first == ' ' || *first == '\t') first++;
+            memmove(addr, first, strlen(first) + 1);
+            last = addr + strlen(addr);
+            while (last > addr && (last[-1] == ' ' || last[-1] == '\t'))
+                *--last = '\0';
+        }
+        if (SendDlgItemMessageA(hwnd, IDC_SET_EXTERNAL, BM_GETCHECK, 0, 0) ==
+                BST_CHECKED &&
+            colecosession_parse_hostport(addr, host, sizeof host, &port) != 0) {
+            MessageBoxA(hwnd, "That is not an address:port.\n\nExample: "
+                        "127.0.0.1:11502", "External FujiNet", MB_ICONWARNING);
+            SetFocus(GetDlgItem(hwnd, IDC_SET_EXT_ADDR));
+            return 0;
+        }
+        old = colecosession_get_str(g_session, "fujinet_external_addr", "");
+        if (colecosession_parse_hostport(addr, host, sizeof host, &port) == 0 &&
+            strcmp(old, addr) != 0) {
+            colecosession_set_str(g_session, "fujinet_external_addr", addr);
+            g_settings_dirty = 1;
+        }
         DestroyWindow(hwnd);
         return 0;
+    }
     case WM_DESTROY:
         g_settings_window = NULL;
         if (g_settings_dirty) {
@@ -356,7 +396,7 @@ static void show_settings(HINSTANCE inst)
     g_settings_window = CreateWindowA(
         "ColecoSettingsWindow", "Settings",
         WS_OVERLAPPEDWINDOW & ~(WS_MAXIMIZEBOX | WS_THICKFRAME),
-        CW_USEDEFAULT, CW_USEDEFAULT, 400, 340, NULL, NULL, inst, NULL);
+        CW_USEDEFAULT, CW_USEDEFAULT, 400, 410, NULL, NULL, inst, NULL);
 
     settings_label(g_settings_window, inst, "Machine", y, 18);
     y += 24;
@@ -387,6 +427,24 @@ static void show_settings(HINSTANCE inst)
     settings_checkbox(g_settings_window, inst, "Enable FujiNet",
                       IDC_SET_FUJINET, y,
                       colecosession_get_int(g_session, "enable_fujinet", 1));
+    y += 28;
+    settings_checkbox(g_settings_window, inst, "Use external FujiNet",
+                      IDC_SET_EXTERNAL, y,
+                      colecosession_get_int(g_session, "fujinet_external", 0));
+    y += 28;
+    settings_label(g_settings_window, inst, "Address:port:", y + 3, 18);
+    {
+        HWND edit = CreateWindowExA(
+            WS_EX_CLIENTEDGE, "EDIT",
+            colecosession_get_str(g_session, "fujinet_external_addr", ""),
+            WS_CHILD | WS_VISIBLE | WS_TABSTOP | ES_AUTOHSCROLL, 110, y, 230,
+            22, g_settings_window, (HMENU)(INT_PTR)IDC_SET_EXT_ADDR, inst,
+            NULL);
+        SendMessageA(edit, WM_SETFONT, (WPARAM)font, TRUE);
+        SendMessageA(edit, EM_SETCUEBANNER, FALSE, (LPARAM)L"127.0.0.1:11502");
+        EnableWindow(edit, colecosession_get_int(g_session, "fujinet_external",
+                                                 0) != 0);
+    }
     y += 34;
 
     settings_label(g_settings_window, inst, "Host", y, 18);
@@ -488,6 +546,13 @@ static LRESULT CALLBACK log_proc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp)
 static void show_fujinet_log(HINSTANCE inst)
 {
     RECT rc;
+
+    if (colecosession_fujinet_external(g_session)) {
+        MessageBox(g_hwnd, "FujiNet is external: its console output is in "
+                   "the process that is running it.", "FujiNet",
+                   MB_ICONINFORMATION | MB_OK);
+        return;
+    }
 
     if (g_log_window) {
         SetForegroundWindow(g_log_window);
@@ -624,6 +689,12 @@ static LRESULT CALLBACK wndproc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp)
             show_fujinet_log((HINSTANCE)GetWindowLongPtr(hwnd, GWLP_HINSTANCE));
             return 0;
         case IDM_FUJINET_CONFIG:
+            if (colecosession_fujinet_external(g_session)) {
+                MessageBox(hwnd, "FujiNet is external: use the web UI of the "
+                           "instance this app dials.", "FujiNet",
+                           MB_ICONINFORMATION | MB_OK);
+                return 0;
+            }
             if (!colecosession_fujinet_running(g_session)) {
                 MessageBox(hwnd, "FujiNet is not running.", "FujiNet",
                            MB_ICONINFORMATION | MB_OK);

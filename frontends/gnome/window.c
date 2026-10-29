@@ -300,6 +300,10 @@ static void action_fujinet_config(GSimpleAction *a, GVariant *p,
     GtkUriLauncher *l;
     (void)a; (void)p;
 
+    if (colecosession_fujinet_external(self->session)) {
+        push_toast(self, "FujiNet is external: use its own web UI");
+        return;
+    }
     if (!colecosession_fujinet_running(self->session)) {
         push_toast(self, "FujiNet is not running");
         return;
@@ -332,6 +336,10 @@ static void action_fujinet_log(GSimpleAction *a, GVariant *p,
     ColecoWindow *self = user_data;
     (void)a;
     (void)p;
+    if (colecosession_fujinet_external(self->session)) {
+        push_toast(self, "FujiNet is external: see its own console");
+        return;
+    }
     coleco_fujilog_show(GTK_WINDOW(self), self->session);
 }
 

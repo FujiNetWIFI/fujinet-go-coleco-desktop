@@ -76,6 +76,8 @@ void colecosession_default_opts(colecosession *s, colecosession_start_opts *opts
     opts->palette = colecosession_get_int(s, "palette", 0);
     opts->swap_buttons = colecosession_get_int(s, "swap_buttons", 0);
     opts->enable_fujinet = colecosession_get_int(s, "enable_fujinet", 1);
+    opts->external_fujinet = colecosession_get_int(s, "fujinet_external", 0);
+    opts->boip_connect = colecosession_get_str(s, "fujinet_external_addr", NULL);
     opts->enable_audio = colecosession_get_int(s, "enable_audio", 1);
     opts->enable_gamepad = colecosession_get_int(s, "enable_gamepad", 1);
     opts->cart_path = colecosession_get_str(s, "cart_path", NULL);
@@ -144,7 +146,29 @@ int colecosession_start(colecosession *s, const colecosession_start_opts *opts)
      * A FujiNet that fails to start is NOT fatal. The machine boots with the
      * mailbox reporting the link down, the CONFIG client says so on screen,
      * and the user can still run cartridges -- far better than refusing. */
-    if (opts->enable_fujinet) {
+    s->fujinet_external = 0;
+    snprintf(s->boip_hostport, sizeof s->boip_hostport, "127.0.0.1:%d",
+             COLECOSESSION_BOIP_PORT);
+    if (opts->external_fujinet) {
+        /* Someone else's FujiNet: dial the address the settings name, and
+         * start nothing. A bad address is an error, not a silent fall back
+         * to the built-in one. */
+        char host[64];
+        int port;
+
+        if (colecosession_parse_hostport(opts->boip_connect, host, sizeof host,
+                                         &port) != 0) {
+            session_set_error(s, "\"%s\" is not an address:port for the "
+                              "external FujiNet (example: 127.0.0.1:%d)",
+                              opts->boip_connect ? opts->boip_connect : "",
+                              COLECOSESSION_BOIP_PORT);
+            free(cart);
+            return -1;
+        }
+        s->fujinet_external = 1;
+        snprintf(s->boip_hostport, sizeof s->boip_hostport, "%s:%d", host,
+                 port);
+    } else if (opts->enable_fujinet) {
         if (fujinet_start(s) == 0)
             fujinet_wait_for_boip(s, 3000);
     }
@@ -158,7 +182,8 @@ int colecosession_start(colecosession *s, const colecosession_start_opts *opts)
     hopts.swap_buttons = opts->swap_buttons;
     hopts.audio_rate = COLECOSESSION_AUDIO_RATE;
     /* "" means no cartridge device at all -- a bare ColecoVision. */
-    hopts.fujinet_hostport = opts->enable_fujinet ? s->boip_hostport : "";
+    hopts.fujinet_hostport = (opts->enable_fujinet || s->fujinet_external)
+                                 ? s->boip_hostport : "";
 
     /* The debugger's FujiNet trace records from the first transaction, open
      * or not: creating the engine installs its tap before the machine runs. */
@@ -198,6 +223,7 @@ void colecosession_stop(colecosession *s)
     gamepad_stop(s);
     coleco_host_stop();
     fujinet_stop(s);
+    s->fujinet_external = 0;
     s->running = 0;
 }
 
@@ -287,7 +313,75 @@ int colecosession_fujinet_running(const colecosession *s)
 
 const char *colecosession_fujinet_webui_url(const colecosession *s)
 {
-    return s->webui_url;
+    return s->fujinet_external ? "" : s->webui_url;
+}
+
+int colecosession_parse_hostport(const char *text, char *host, int hostsz,
+                              int *port)
+{
+    char buf[80], *colon, *end;
+    const char *name = "127.0.0.1";
+    long num = COLECOSESSION_BOIP_PORT;
+    size_t len, i;
+
+    if (!text) text = "";
+    while (*text == ' ' || *text == '\t') text++;
+    len = strlen(text);
+    while (len && (text[len - 1] == ' ' || text[len - 1] == '\t' ||
+                   text[len - 1] == '\n' || text[len - 1] == '\r'))
+        len--;
+    if (len >= sizeof buf) return -1;
+    memcpy(buf, text, len);
+    buf[len] = '\0';
+
+    if (len) {
+        colon = strrchr(buf, ':');
+        if (colon) {
+            *colon = '\0';
+            name = buf;
+            if (!*name) return -1;
+            text = colon + 1;
+        } else {
+            text = buf;
+        }
+        if (!*text) return -1;
+        num = strtol(text, &end, 10);
+        if (*end || num < 1 || num > 65535) return -1;
+        if (colon) {
+            /* A host name or an IPv4 literal: letters, digits, '-', '_' and
+             * '.'; a name of only digits and dots must be a whole address. */
+            int digits_only = 1, octet[4], used = 0, k;
+            for (i = 0; name[i]; i++) {
+                char ch = name[i];
+                int alnum = (ch >= '0' && ch <= '9') ||
+                            (ch >= 'a' && ch <= 'z') || (ch >= 'A' && ch <= 'Z');
+                if (!alnum && ch != '-' && ch != '_' && ch != '.') return -1;
+                if (!(ch >= '0' && ch <= '9') && ch != '.') digits_only = 0;
+            }
+            if (name[0] == '.' || name[i - 1] == '.' || strstr(name, "..")) return -1;
+            if (digits_only) {
+                if (sscanf(name, "%d.%d.%d.%d%n", &octet[0], &octet[1],
+                           &octet[2], &octet[3], &used) != 4 || name[used])
+                    return -1;
+                for (k = 0; k < 4; k++)
+                    if (octet[k] < 0 || octet[k] > 255) return -1;
+            }
+        }
+    }
+    if ((int)strlen(name) >= hostsz) return -1;
+    memcpy(host, name, strlen(name) + 1);
+    *port = (int)num;
+    return 0;
+}
+
+int colecosession_fujinet_external(const colecosession *s)
+{
+    return s->fujinet_external;
+}
+
+const char *colecosession_boip_endpoint(const colecosession *s)
+{
+    return s->boip_hostport;
 }
 
 int colecosession_cart_link_up(const colecosession *s)

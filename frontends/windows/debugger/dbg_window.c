@@ -501,7 +501,14 @@ static void refresh_fujinet(debugger *d, int force)
     size_t len = 0;
     int n = colecodebug_fujinet_trace(d->dbg, p, FUJI_MAX), i, follow;
 
-    if (!colecosession_fujinet_running(d->session))
+    if (colecosession_fujinet_external(d->session)) {
+        char note[200];
+        snprintf(note, sizeof note, "External FujiNet at %s, %s.",
+                 colecosession_boip_endpoint(d->session),
+                 colecosession_cart_link_up(d->session) ? "connected"
+                                                        : "not connected");
+        set_label(d->fuji_note, note);
+    } else if (!colecosession_fujinet_running(d->session))
         set_label(d->fuji_note, "FujiNet is off (Preferences \xe2\x96\xb8 FujiNet).");
     else
         set_label(d->fuji_note, colecosession_cart_link_up(d->session)

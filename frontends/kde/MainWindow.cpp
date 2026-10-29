@@ -138,6 +138,12 @@ void MainWindow::buildMenus()
 
     QMenu *fuji = menuBar()->addMenu(QStringLiteral("&FujiNet"));
     fuji->addAction(QStringLiteral("&Configuration"), this, [this] {
+        if (colecosession_fujinet_external(m_session)) {
+            statusBar()->showMessage(
+                QStringLiteral("FujiNet is external: use its own web UI"),
+                4000);
+            return;
+        }
         if (!colecosession_fujinet_running(m_session)) {
             statusBar()->showMessage(QStringLiteral("FujiNet is not running"),
                                      4000);
@@ -146,8 +152,15 @@ void MainWindow::buildMenus()
         QDesktopServices::openUrl(QUrl(QString::fromUtf8(
             colecosession_fujinet_webui_url(m_session))));
     });
-    fuji->addAction(QStringLiteral("Console &Log"), this,
-                    [this] { fujinet_log_show(this, m_session); });
+    fuji->addAction(QStringLiteral("Console &Log"), this, [this] {
+        if (colecosession_fujinet_external(m_session)) {
+            statusBar()->showMessage(
+                QStringLiteral("FujiNet is external: see its own console"),
+                4000);
+            return;
+        }
+        fujinet_log_show(this, m_session);
+    });
 }
 
 void MainWindow::showSettings()

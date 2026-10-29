@@ -83,6 +83,10 @@ typedef struct {
     int palette;            /* 0..3 */
     int swap_buttons;       /* 0/1 */
     int enable_fujinet;     /* start the in-process FujiNet runtime */
+    int external_fujinet;   /* 1: don't start it; dial another FujiNet
+                             * instance at boip_connect instead */
+    const char *boip_connect; /* "host:port" or "port" the cartridge dials
+                               * (external only); NULL/"" = 127.0.0.1:11502 */
     int enable_audio;       /* open the SDL audio device */
     int enable_gamepad;     /* start the SDL gamepad thread */
 } colecosession_start_opts;
@@ -237,7 +241,18 @@ int colecosession_gamepad_name(const colecosession *s, int port, char *dst,
 uint16_t colecosession_gamepad_last_state(const colecosession *s, int port);
 
 /* ---- FujiNet -------------------------------------------------------------*/
+/* Parses the "Use external FujiNet" address field: "host:port" (host a name
+ * or an IPv4 literal) or a bare "port". Empty text means the default,
+ * 127.0.0.1:11502. Returns 0 and fills host/port, or -1 when the text is not
+ * an address:port (nothing is written then). */
+int         colecosession_parse_hostport(const char *text, char *host,
+                                         int hostsz, int *port);
 int         colecosession_fujinet_running(const colecosession *s);
+/* 1 when the session was started to dial an external FujiNet. */
+int         colecosession_fujinet_external(const colecosession *s);
+/* "host:port" the cartridge dials (the running session's, or the default
+ * 127.0.0.1:11502 before the first start). */
+const char *colecosession_boip_endpoint(const colecosession *s);
 const char *colecosession_fujinet_webui_url(const colecosession *s);
 int         colecosession_fujinet_copy_log(colecosession *s, char *dst, int max);
 /* Is the cartridge's link to FujiNet up, and is its mailbox decoding? */

@@ -48,6 +48,18 @@ add_executable(bindings_test bindings_test.c)
 target_link_libraries(bindings_test coleco_session)
 add_test(NAME bindings COMMAND bindings_test)
 
+# The external-FujiNet address field's parser.
+add_executable(hostport_test hostport_test.c)
+target_link_libraries(hostport_test coleco_session)
+add_test(NAME hostport COMMAND hostport_test)
+
+# External FujiNet: the cartridge dials a stand-in listener and no built-in
+# runtime is started. Needs a BIOS (SKIPs, 77, without); not on Windows.
+add_executable(external_test external_test.c)
+target_link_libraries(external_test coleco_session)
+add_test(NAME external COMMAND external_test "${CMAKE_SOURCE_DIR}/tools/roms")
+set_tests_properties(external PROPERTIES SKIP_RETURN_CODE 77 TIMEOUT 60)
+
 # Where a dropped file goes, and whether a real cartridge runs once there.
 add_executable(media_test media_test.c)
 target_link_libraries(media_test coleco_session)
@@ -95,7 +107,7 @@ endif() # TARGET coleco_session
 if(WIN32)
   # cart_test is conditional on the ROMs being available, hence the guard.
   foreach(_t no_sdl_link_test cart_test fujitrace_test boot_smoke input_test
-             session_test bindings_test media_test debug_test dasm_test
+             session_test bindings_test media_test hostport_test external_test debug_test dasm_test
              vdp_decode_test gamepad_map_test gamepad_probe)
     if(TARGET ${_t})
       target_link_options(${_t} PRIVATE -static -static-libgcc -static-libstdc++)
