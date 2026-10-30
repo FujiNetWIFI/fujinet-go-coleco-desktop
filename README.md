@@ -39,6 +39,10 @@ there is marked done on "it compiles".
   controller once a frame, so a value present for only an instant falls
   between frames and a polling game never sees it.
 
+## External FujiNet
+
+A switch in Preferences makes the app connect to another FujiNet instance at a host:port you enter, e.g. `127.0.0.1:11502`, instead of starting the built-in one.
+
 ## Building
 
 ```sh
