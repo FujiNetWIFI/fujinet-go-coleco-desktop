@@ -80,9 +80,21 @@ static const char *const reg_names[8] = {"AF", "BC", "DE", "HL",
 
 /* ---- helpers ------------------------------------------------------------- */
 
+/* Unchanged text is not set again: it would reset the selection and scroll
+ * position and relayout for nothing. */
 static void set_text(GtkTextView *view, const char *text)
 {
-    gtk_text_buffer_set_text(gtk_text_view_get_buffer(view), text, -1);
+    GtkTextBuffer *b = gtk_text_view_get_buffer(view);
+    GtkTextIter s, e;
+    char *old;
+    gboolean same;
+
+    gtk_text_buffer_get_bounds(b, &s, &e);
+    old = gtk_text_buffer_get_text(b, &s, &e, FALSE);
+    same = strcmp(old, text) == 0;
+    g_free(old);
+    if (!same)
+        gtk_text_buffer_set_text(b, text, -1);
 }
 
 static GtkAdjustment *vadj(GtkTextView *view)
@@ -688,13 +700,20 @@ static gboolean tick_refresh(gpointer ud)
 {
     DbgWin *w = ud;
     /* Live views while running; the stop path refreshes everything. */
-    if (!colecodebug_is_paused(w->dbg)) {
-        refresh_vdp(w);
-        refresh_regs(w);
+    if (!colecodebug_is_paused(w->dbg) && gtk_widget_get_mapped(GTK_WIDGET(w->notebook))) {
+        /* Only the page being looked at: the VDP page is four textures and a
+         * VRAM dump, and nobody sees it from another tab. A page that comes
+         * back to the front refreshes on its next tick. */
+        const int page = gtk_notebook_get_current_page(w->notebook);
+
+        if (page == PAGE_VDP)
+            refresh_vdp(w);
+        if (page == PAGE_CPU)
+            refresh_regs(w);
         /* the FujiNet log twice a second, while it shows */
         if (++w->running_ticks >= 5) {
             w->running_ticks = 0;
-            if (gtk_notebook_get_current_page(w->notebook) == PAGE_FUJINET)
+            if (page == PAGE_FUJINET)
                 refresh_fujinet(w, FALSE);
         }
     }

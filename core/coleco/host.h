@@ -55,6 +55,19 @@ const char *coleco_host_last_error(void);
  * a copy after a window map. */
 int coleco_host_frame_copy(uint16_t *dst, uint64_t *serial_inout);
 
+/* Called on the machine thread right after each new frame is published (a
+ * frame identical to its predecessor is not published again), so a frontend
+ * with no frame clock can draw when there is something to draw instead of
+ * polling. The callback must be quick and must not call back into the host
+ * (it runs with a lock held: coleco_host_set_frame_callback(NULL, NULL)
+ * waits for a call in flight, so the context may be freed once it returns). */
+typedef void (*coleco_host_frame_cb)(void *ctx);
+void coleco_host_set_frame_callback(coleco_host_frame_cb cb, void *ctx);
+/* Frames the machine has run since start, including the ones not published
+ * because they matched their predecessor: "is the machine running", not "is
+ * the picture changing". */
+uint64_t coleco_host_frame_count(void);
+
 /* Feed the UI's frame-clock ticks (CLOCK_MONOTONIC ns). While a steady ~60 Hz
  * stream arrives the emulator phase-locks one frame per tick; otherwise it
  * paces on the wall clock. */

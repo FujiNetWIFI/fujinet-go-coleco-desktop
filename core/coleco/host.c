@@ -41,13 +41,48 @@ static int s_want_cart;
 static pthread_mutex_t s_frame_lock = PTHREAD_MUTEX_INITIALIZER;
 static uint16_t s_frame[COLECO_FB_WIDTH * COLECO_FB_HEIGHT];
 static uint64_t s_frame_serial;
+static int s_frame_valid;          /* s_frame holds a frame of this run */
+static atomic_ullong s_frame_count;
 
+static pthread_mutex_t s_cb_lock = PTHREAD_MUTEX_INITIALIZER;
+static coleco_host_frame_cb s_frame_cb;
+static void *s_frame_cb_ctx;
+
+void coleco_host_set_frame_callback(coleco_host_frame_cb cb, void *ctx)
+{
+    pthread_mutex_lock(&s_cb_lock);
+    s_frame_cb = cb;
+    s_frame_cb_ctx = ctx;
+    pthread_mutex_unlock(&s_cb_lock);
+}
+
+uint64_t coleco_host_frame_count(void)
+{
+    return atomic_load(&s_frame_count);
+}
+
+/* A frame identical to the one in the slot is not a new frame: the serial
+ * stays and nobody is called. The machine runs at 60 Hz whatever it shows,
+ * and most of what a FujiNet cartridge shows (CONFIG, a menu) does not move,
+ * so without this the frontends would convert, upload and draw the same
+ * picture sixty times a second. (The compare is ~10 us for 108 KB.) */
 static void frame_publish(const uint16_t *fb)
 {
+    atomic_fetch_add(&s_frame_count, 1);
     pthread_mutex_lock(&s_frame_lock);
+    if (s_frame_valid && memcmp(s_frame, fb, sizeof s_frame) == 0) {
+        pthread_mutex_unlock(&s_frame_lock);
+        return;
+    }
     memcpy(s_frame, fb, sizeof s_frame);
+    s_frame_valid = 1;
     s_frame_serial++;
     pthread_mutex_unlock(&s_frame_lock);
+
+    pthread_mutex_lock(&s_cb_lock);
+    if (s_frame_cb)
+        s_frame_cb(s_frame_cb_ctx);
+    pthread_mutex_unlock(&s_cb_lock);
 }
 
 int coleco_host_frame_copy(uint16_t *dst, uint64_t *serial_inout)
@@ -287,6 +322,10 @@ int coleco_host_start(const coleco_host_opts *opts)
 
     if (atomic_load(&s_running)) return 0;
     s_error[0] = '\0';
+    pthread_mutex_lock(&s_frame_lock);
+    s_frame_valid = 0;
+    pthread_mutex_unlock(&s_frame_lock);
+    atomic_store(&s_frame_count, 0);
 
     if (!opts || !opts->os7) {
         snprintf(s_error, sizeof s_error,

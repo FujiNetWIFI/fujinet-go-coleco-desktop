@@ -45,8 +45,11 @@ void fujinet_log_show(QWidget *parent, colecosession *session)
         const int n = colecosession_fujinet_copy_log(session, buf, sizeof(buf));
         const bool atEnd = view->verticalScrollBar()->value() ==
                            view->verticalScrollBar()->maximum();
-        view->setPlainText(n > 0 ? QString::fromUtf8(buf)
-                                 : QStringLiteral("(no FujiNet output yet)"));
+        const QString text = n > 0 ? QString::fromUtf8(buf)
+                                   : QStringLiteral("(no FujiNet output yet)");
+        if (view->toPlainText() == text)
+            return;   /* unchanged: leave the view (and any selection) be */
+        view->setPlainText(text);
         /* Follow the tail only while the reader is already at the bottom;
          * scrolling up to read something must not be yanked away a second
          * later. */

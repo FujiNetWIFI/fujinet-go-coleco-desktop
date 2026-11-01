@@ -169,8 +169,12 @@ int main(int argc, char **argv)
          * the rate. A loaded CI box can be slow, and a rate assertion here
          * would fail for a reason that has nothing to do with the
          * debugger. */
+        uint64_t start = colecosession_frame_count(s);
         for (i = 0; i < 200 && frames < 5; i++) {
-            if (colecosession_copy_frame(s, fb, &serial)) frames++;
+            /* frame_count, not the published serial: a still screen is not
+             * published again */
+            colecosession_copy_frame(s, fb, &serial);
+            frames = (int)(colecosession_frame_count(s) - start);
             nap(10);
         }
         check("frames flow again after resume", frames >= 5);

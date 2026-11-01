@@ -142,9 +142,14 @@ DebuggerWindow::DebuggerWindow(QWidget *parent, colecosession *session)
 
     m_tick = new QTimer(this);
     connect(m_tick, &QTimer::timeout, this, [this] {
-        if (!colecodebug_is_paused(m_dbg)) {
-            refreshVdp();
-            refreshRegs();
+        if (!colecodebug_is_paused(m_dbg) && isVisible() && !isMinimized()) {
+            /* Only what is on screen: the VDP views are four pixmaps and a
+             * VRAM dump, and a tabified dock that is not raised is not
+             * visible. Whatever comes to the front catches up next tick. */
+            if (m_nt->isVisible() || m_vramView->isVisible())
+                refreshVdp();
+            if (m_flags->isVisible())
+                refreshRegs();
             /* the FujiNet log twice a second, while it shows */
             if (++m_runningTicks >= 5) {
                 m_runningTicks = 0;
@@ -685,15 +690,15 @@ void DebuggerWindow::refreshVdp()
                     .arg(info[i].pattern, 3, 16)
                     .arg(info[i].color, 3)
                     .arg(info[i].early_clock);
-    m_spriteInfo->setPlainText(text);
+    setText(m_spriteInfo, text);
 
     static char state[4096];
     colecovdp_format_state(&snap, state, int(sizeof(state)));
-    m_vdpState->setPlainText(QString::fromLatin1(state));
+    setText(m_vdpState, QString::fromLatin1(state));
 
     colecovdp_format_hex(&snap, m_vramBase, kVramRows, state,
                        int(sizeof(state)));
-    m_vramView->setPlainText(QString::fromLatin1(state));
+    setText(m_vramView, QString::fromLatin1(state));
 }
 
 /* The log is rebuilt only when it has changed; the state pane always. */

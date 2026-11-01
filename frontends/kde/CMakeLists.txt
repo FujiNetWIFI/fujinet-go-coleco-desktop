@@ -16,7 +16,8 @@ set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_AUTOMOC ON)
 
-find_package(Qt6 6.4 COMPONENTS Widgets QUIET)
+# Qt 6.7 for QRhiWidget (the GPU display); ShaderTools bakes its shaders.
+find_package(Qt6 6.7 COMPONENTS Widgets GuiPrivate ShaderTools QUIET)
 if(NOT Qt6_FOUND)
   message(STATUS "kde frontend: Qt6 Widgets not found -- skipping")
   return()
@@ -26,13 +27,19 @@ add_executable(fujinet-go-coleco-kde
   main.cpp
   MainWindow.cpp
   DisplayWidget.cpp
+  SoftDisplayWidget.cpp
+  FrameFeed.cpp
   KeypadWindow.cpp
   KeyForward.cpp
   SettingsDialog.cpp
   FujiNetLogWindow.cpp
   debugger/DebuggerWindow.cpp
 )
-target_link_libraries(fujinet-go-coleco-kde PRIVATE coleco_session Qt6::Widgets)
+target_link_libraries(fujinet-go-coleco-kde PRIVATE coleco_session Qt6::Widgets Qt6::GuiPrivate)
+# The display's shaders, baked for every backend and embedded as resources.
+qt_add_shaders(fujinet-go-coleco-kde "display_shaders"
+  PREFIX "/shaders"
+  FILES shaders/display.vert shaders/display.frag)
 target_compile_options(fujinet-go-coleco-kde PRIVATE -Wall -Wextra)
 
 install(TARGETS fujinet-go-coleco-kde RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})

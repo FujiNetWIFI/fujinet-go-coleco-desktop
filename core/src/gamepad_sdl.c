@@ -123,20 +123,21 @@ static uint16_t read_pad(SDL_Gamepad *p)
 static int SDLCALL poll_thread(void *ud)
 {
     gamepad_state *g = ud;
-    int rescan_tick = 0;
+    int rescan_ms = 0;
 
     while (!SDL_GetAtomicInt(&g->stop)) {
-        int i;
+        int i, have = 0, delay;
         /* Rescan a few times a second, not every poll: enumerating is cheap
-         * but not free, and a pad plugged in is not a 4 ms-latency event. */
-        if (++rescan_tick >= 60) {
-            rescan_tick = 0;
+         * but not free, and a pad plugged in is not a latency-critical event. */
+        if (rescan_ms >= 250) {
+            rescan_ms = 0;
             rescan(g);
         }
         SDL_UpdateGamepads();
         for (i = 0; i < MAX_PADS; i++) {
             uint16_t w;
             if (!g->pad[i]) continue;
+            have = 1;
             w = read_pad(g->pad[i]);
             /* Only push on change: the keyboard also writes these ports, and
              * a pad re-asserting idle 60 times a second would stamp on a key
@@ -146,7 +147,14 @@ static int SDLCALL poll_thread(void *ud)
                 colecosession_joystick_raw(g->session, i, w);
             }
         }
-        SDL_Delay(4);
+        /* ~60 Hz while a pad is attached (the machine's own sampling rate).
+         * With none there is nothing to sample, only hotplug to notice, which
+         * can wait a tenth of a second: 10 wakeups a second, not 250.
+         * (SDL_WaitEventTimeout is no help here: SDL polls inside it at
+         * about 1 kHz.) */
+        delay = have ? 16 : 100;
+        SDL_Delay(delay);
+        rescan_ms += delay;
     }
     return 0;
 }

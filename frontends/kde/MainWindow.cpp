@@ -26,6 +26,7 @@
 #include <QUrl>
 
 #include "DisplayWidget.h"
+#include "SoftDisplayWidget.h"
 #include "KeyForward.h"
 #include "KeypadWindow.h"
 #include "debugger/DebuggerWindow.h"
@@ -40,10 +41,13 @@ MainWindow::MainWindow(colecosession *session, QWidget *parent)
     setAcceptDrops(true);
     coleco_input_reset(&m_keys);
 
-    m_display = new DisplayWidget(session, this);
-    m_display->setTvAspect(colecosession_get_int(session, "tv_aspect", 1) != 0);
-    m_display->setSmooth(colecosession_get_int(session, "smooth", 0) != 0);
-    setCentralWidget(m_display);
+    auto *gpu = new DisplayWidget(session, this);
+    m_display = gpu;
+    applyPicture();
+    setCentralWidget(gpu);
+    /* No usable GPU device: fall back to painting in software */
+    connect(gpu, &QRhiWidget::renderFailed, this, &MainWindow::useSoftwareDisplay,
+            Qt::QueuedConnection);
 
     m_status = new QLabel(QStringLiteral("Starting..."));
     statusBar()->addWidget(m_status);
@@ -195,6 +199,22 @@ void MainWindow::toggleKeypad()
      * both survive closing it. */
     if (m_keypad->isVisible()) m_keypad->hide();
     else m_keypad->show();
+}
+
+void MainWindow::useSoftwareDisplay()
+{
+    if (dynamic_cast<SoftDisplayWidget *>(m_display))
+        return;
+    auto *soft = new SoftDisplayWidget(m_session, this);
+    m_display = soft;
+    setCentralWidget(soft);   /* deletes the GPU display, which stops its feed */
+    applyPicture();
+}
+
+void MainWindow::applyPicture()
+{
+    m_display->setTvAspect(colecosession_get_int(m_session, "tv_aspect", 1) != 0);
+    m_display->setSmooth(colecosession_get_int(m_session, "smooth", 0) != 0);
 }
 
 void MainWindow::updateStatus()

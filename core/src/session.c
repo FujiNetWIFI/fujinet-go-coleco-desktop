@@ -242,6 +242,18 @@ int colecosession_copy_frame(colecosession *s, uint16_t *dst,
     return coleco_host_frame_copy(dst, serial_inout);
 }
 
+void colecosession_set_frame_callback(colecosession *s,
+                                      colecosession_frame_cb cb, void *ctx)
+{
+    (void)s;
+    coleco_host_set_frame_callback(cb, ctx);
+}
+
+uint64_t colecosession_frame_count(colecosession *s)
+{
+    return s->running ? coleco_host_frame_count() : 0;
+}
+
 void colecosession_notify_vsync(colecosession *s, int64_t frame_time_ns)
 {
     (void)s;

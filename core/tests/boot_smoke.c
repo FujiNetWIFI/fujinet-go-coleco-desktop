@@ -48,19 +48,20 @@ static int64_t now_ns(void)
     return (int64_t)t.tv_sec * 1000000000LL + t.tv_nsec;
 }
 
-/* Feed vsync ticks every `period_ns` for one second, counting the distinct
- * frames the machine publishes meanwhile. */
+/* Feed vsync ticks every `period_ns` for one second, counting the frames the
+ * machine runs meanwhile (frame_count: a still screen is not republished, so
+ * the published serial no longer counts them). */
 static int feed_ticks(uint16_t *fb, uint64_t *serial, long period_ns)
 {
-    int frames = 0;
+    uint64_t start = coleco_host_frame_count();
     int64_t t1 = now_ns();
     while ((now_ns() - t1) < 1000000000LL) {
         struct timespec s2 = { 0, period_ns };
         coleco_host_notify_vsync(now_ns());
-        if (coleco_host_frame_copy(fb, serial)) frames++;
+        coleco_host_frame_copy(fb, serial);
         nanosleep(&s2, NULL);
     }
-    return frames;
+    return (int)(coleco_host_frame_count() - start);
 }
 
 int main(int argc, char **argv)
@@ -101,10 +102,14 @@ int main(int argc, char **argv)
     /* Count published frames over a second of wall clock, with no vsync
      * ticks fed in, so this measures the wall-clock fallback path. */
     t0 = now_ns();
-    while ((now_ns() - t0) < 1000000000LL) {
-        if (coleco_host_frame_copy(fb, &serial)) frames++;
-        struct timespec s = { 0, 1000000 }; /* 1 ms */
-        nanosleep(&s, NULL);
+    {
+        uint64_t start = coleco_host_frame_count();
+        while ((now_ns() - t0) < 1000000000LL) {
+            struct timespec s = { 0, 1000000 }; /* 1 ms */
+            coleco_host_frame_copy(fb, &serial);
+            nanosleep(&s, NULL);
+        }
+        frames = (int)(coleco_host_frame_count() - start);
     }
     elapsed_ms = (now_ns() - t0) / 1000000;
 

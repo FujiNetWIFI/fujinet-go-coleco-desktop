@@ -10,7 +10,7 @@
 
 #include "colecosession.h"
 
-class DisplayWidget;
+class DisplayView;
 class KeypadWindow;
 
 class MainWindow : public QMainWindow {
@@ -35,11 +35,13 @@ private:
     void updateStatus();
     void loadMedia(const QString &path);
     void toggleKeypad();
+    void useSoftwareDisplay();
+    void applyPicture();
     void showSettings();
     void restartSession();
 
     colecosession *m_session;
-    DisplayWidget *m_display = nullptr;
+    DisplayView *m_display = nullptr;
     KeypadWindow *m_keypad = nullptr;
     QLabel *m_status = nullptr;
     QTimer m_statusTimer;
