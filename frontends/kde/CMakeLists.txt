@@ -38,7 +38,7 @@ add_executable(fujinet-go-coleco-kde
 target_link_libraries(fujinet-go-coleco-kde PRIVATE coleco_session Qt6::Widgets Qt6::GuiPrivate)
 # The display's shaders, baked for every backend and embedded as resources.
 qt_add_shaders(fujinet-go-coleco-kde "display_shaders"
-  PREFIX "/shaders"
+  PREFIX "/"
   FILES shaders/display.vert shaders/display.frag)
 target_compile_options(fujinet-go-coleco-kde PRIVATE -Wall -Wextra)
 
