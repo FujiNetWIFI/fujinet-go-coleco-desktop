@@ -44,7 +44,11 @@ find_package(Git QUIET)
 set(ADAMCORE_COMMIT "611bfe4d0a6ac76166588ca674ba2d46d10d6bf4")
 set(ADAMCORE_URL "https://github.com/tschak909/adamcore")
 
-# fujinet-firmware, branch colecovision-bringup (902dd043f). Contains the
+# fujinet-firmware, fork branch boip-idle-wait-on-coleco-config (476b1bf75):
+# the previous pin (902dd043f, colecovision-bringup) plus the BoIP idle-wait
+# fix, fujinet-firmware PR #2247 (idle wakeups ~1000/s -> ~100/s). TEMPORARY:
+# the pin returns to master when #2247 merges. The commit lives only on the
+# fork, hence the tschak909 URL. The old pin contains the
 # complete pico/coleco port: the mailbox protocol, all five cartridge mappers
 # in colmap.c, the baked-in CONFIG client, the MAME cart device, and the .col
 # media-type registration without which no cartridge in the No-Intro set
@@ -56,8 +60,8 @@ set(ADAMCORE_URL "https://github.com/tschak909/adamcore")
 # commit has moved on the server before in a sibling repo, so treat a failed
 # fetch of this exact hash as "the branch was rebased/merged", not as a
 # network fault.
-set(FUJINET_COMMIT "902dd043f061cbeed1b59e33e94a690e29df0a46")
-set(FUJINET_URL "https://github.com/FujiNetWIFI/fujinet-firmware")
+set(FUJINET_COMMIT "476b1bf7591a6fd0a1f689c4750214c45b4ff8be")
+set(FUJINET_URL "https://github.com/tschak909/fujinet-firmware")
 
 # coleco_provide_dependency(NAME <n> PATH <p> SENTINEL <file> OVERRIDE <VAR>
 #                           RESULT <out>
