@@ -4,6 +4,8 @@
  */
 #pragma once
 
+#include <functional>
+
 #include <QLabel>
 #include <QMainWindow>
 #include <QTimer>
@@ -17,6 +19,11 @@ class MainWindow : public QMainWindow {
     Q_OBJECT
 public:
     explicit MainWindow(colecosession *session, QWidget *parent = nullptr);
+
+    /* Starts the session (a cartridge given on the command line, else the
+     * saved one). A refusal because there is no BIOS offers the import and
+     * starts again with it; any other is a plain warning. */
+    bool start(const QString &cartPath = QString());
 
 protected:
     void keyPressEvent(QKeyEvent *e) override;
@@ -39,6 +46,10 @@ private:
     void applyPicture();
     void showSettings();
     void restartSession();
+    void explainRefusal(const QString &title, const QString &why,
+                        std::function<void()> retry);
+    void importRoms(bool folder, const QString &path = QString());
+    void afterImport(bool wasMissing);
 
     colecosession *m_session;
     DisplayView *m_display = nullptr;

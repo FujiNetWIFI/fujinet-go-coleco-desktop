@@ -22,6 +22,7 @@
  */
 
 #include <windows.h>
+#include <commctrl.h>
 #include <dwmapi.h>
 
 #include <stdio.h>
@@ -31,6 +32,7 @@
 #include "colecosession.h"
 #include "debugger/dbg_window.h"
 #include "keypad/keypad_window.h"
+#include "import.h"
 #include "key_forward.h"
 #include "resource.h"
 
@@ -132,6 +134,24 @@ static void paint(HDC dc)
 
 /* ---- input ---------------------------------------------------------------- */
 
+static int ask(HWND owner, const char *text, const char *title,
+               const char *yes, const char *no);
+static int import_bios(HWND owner, int folder);
+
+/* A start that failed: when the reason is the missing BIOS the message names
+ * Import BIOS, and the answer is an offer of the import, not a dead end. */
+static void report_start_failure(const char *title)
+{
+    char err[512];
+    snprintf(err, sizeof err, "%s", colecosession_last_error(g_session));
+    if (strstr(err, "Import BIOS") != NULL) {
+        if (ask(g_hwnd, err, "BIOS needed", "Import BIOS...", "Not Now"))
+            import_bios(g_hwnd, 0);
+        return;
+    }
+    MessageBox(g_hwnd, err, title, MB_ICONWARNING | MB_OK);
+}
+
 /* Stop, re-read the settings store, start. Everything the settings window
  * writes is read by colecosession_default_opts(), so this is the only way
  * any of it can take effect. */
@@ -142,8 +162,7 @@ static void restart_session(void)
     colecosession_default_opts(g_session, &o);
     colecosession_stop(g_session);
     if (colecosession_start(g_session, &o) != 0)
-        MessageBox(g_hwnd, colecosession_last_error(g_session),
-                   "Could not start", MB_ICONWARNING | MB_OK);
+        report_start_failure("Could not start");
 }
 
 static void push_input(void)
@@ -167,8 +186,9 @@ static void build_menu(HWND hwnd)
     AppendMenu(machine, MF_STRING, IDM_RESET, "&Reset Console");
     AppendMenu(machine, MF_STRING, IDM_RESET_CONFIG, "Reset to &CONFIG");
     AppendMenu(machine, MF_SEPARATOR, 0, NULL);
-    AppendMenu(machine, MF_STRING, IDM_IMPORT_BIOS, "&Import BIOS...");
-    AppendMenu(machine, MF_SEPARATOR, 0, NULL);
+    AppendMenu(machine, MF_STRING, IDM_IMPORT_BIOS, "Import &BIOS...");
+    AppendMenu(machine, MF_STRING, IDM_IMPORT_FOLDER,
+               "Import BIOS from a &Folder...");
     AppendMenu(machine, MF_SEPARATOR, 0, NULL);
     AppendMenu(machine, MF_STRING, IDM_SETTINGS, "&Settings...");
     AppendMenu(machine, MF_SEPARATOR, 0, NULL);
@@ -189,9 +209,93 @@ static void build_menu(HWND hwnd)
     SetMenu(hwnd, bar);
 }
 
+/* A question with two buttons of our own words. Task dialogs need the
+ * version 6 common controls (the manifest asks for them); looked up rather
+ * than imported, so a process without them still gets a plain Yes/No. 1 for
+ * the first button. */
+static wchar_t *wide_dup(const char *text)
+{
+    int n = MultiByteToWideChar(CP_UTF8, 0, text, -1, NULL, 0);
+    wchar_t *w = malloc(sizeof(wchar_t) * (size_t)(n > 0 ? n : 1));
+    if (!w) return NULL;
+    if (n <= 0 || !MultiByteToWideChar(CP_UTF8, 0, text, -1, w, n))
+        w[0] = 0;
+    return w;
+}
+
+static int ask(HWND owner, const char *text, const char *title,
+               const char *yes, const char *no)
+{
+    typedef HRESULT (WINAPI *task_fn)(const TASKDIALOGCONFIG *, int *, int *,
+                                      BOOL *);
+    HMODULE cc = LoadLibraryA("comctl32.dll");
+    task_fn fn = cc ? (task_fn)(void (*)(void))GetProcAddress(
+                          cc, "TaskDialogIndirect") : NULL;
+    if (fn) {
+        wchar_t *wt = wide_dup(text), *wc = wide_dup(title);
+        wchar_t *wy = wide_dup(yes), *wn = wide_dup(no);
+        TASKDIALOG_BUTTON buttons[2];
+        TASKDIALOGCONFIG cfg;
+        int chosen = 0;
+        HRESULT hr = E_FAIL;
+        if (wt && wc && wy && wn) {
+            memset(&cfg, 0, sizeof cfg);
+            buttons[0].nButtonID = 1001;
+            buttons[0].pszButtonText = wy;
+            buttons[1].nButtonID = 1002;
+            buttons[1].pszButtonText = wn;
+            cfg.cbSize = sizeof cfg;
+            cfg.hwndParent = owner;
+            cfg.dwFlags = TDF_ALLOW_DIALOG_CANCELLATION;
+            cfg.pszWindowTitle = wc;
+            cfg.pszMainIcon = TD_INFORMATION_ICON;
+            cfg.pszContent = wt;
+            cfg.cButtons = 2;
+            cfg.pButtons = buttons;
+            cfg.nDefaultButton = 1001;
+            hr = fn(&cfg, &chosen, NULL, NULL);
+        }
+        free(wt); free(wc); free(wy); free(wn);
+        if (SUCCEEDED(hr))
+            return chosen == 1001;
+    }
+    return MessageBoxA(owner, text, title,
+                       MB_ICONINFORMATION | MB_YESNO) == IDYES;
+}
+
+static void settings_refresh_roms(void);
+
+/* The BIOS changed under a console that had none: the session restarts to
+ * pick it up -- the cartridge it runs again, or CONFIG. */
+static void apply_new_roms(int was_missing)
+{
+    if (was_missing)
+        restart_session();
+    settings_refresh_roms();
+}
+
+/* Import BIOS from the menu, Settings or an alert: files or a folder.
+ * Returns 1 when something was imported. */
+static int import_bios(HWND owner, int folder)
+{
+    const int was_missing = !colecosession_bios_available(g_session);
+    const int n = coleco_import_bios(owner, g_session, folder);
+    if (n > 0) apply_new_roms(was_missing);
+    return n > 0;
+}
+
 static void load_media(const char *path)
 {
     char dest[1024];
+    /* A BIOS dump is a ROM, not a cartridge, though it is a .rom or .bin. */
+    if (colecosession_media_is_rom(path)) {
+        const int was_missing = !colecosession_bios_available(g_session);
+        const char *one[1];
+        one[0] = path;
+        if (coleco_import_roms(g_hwnd, g_session, one, 1) > 0)
+            apply_new_roms(was_missing);
+        return;
+    }
     if (colecosession_import_media(g_session, path, dest, sizeof dest) != 0) {
         MessageBox(g_hwnd, colecosession_last_error(g_session),
                    "Import failed", MB_ICONWARNING | MB_OK);
@@ -208,7 +312,7 @@ static void load_media(const char *path)
     restart_session();
 }
 
-static void pick_file(const char *title, const char *filter, int is_bios)
+static void pick_cart(void)
 {
     OPENFILENAME ofn;
     char path[MAX_PATH] = "";
@@ -216,23 +320,14 @@ static void pick_file(const char *title, const char *filter, int is_bios)
     memset(&ofn, 0, sizeof ofn);
     ofn.lStructSize = sizeof ofn;
     ofn.hwndOwner = g_hwnd;
-    ofn.lpstrFilter = filter;
+    ofn.lpstrFilter = "ColecoVision cartridges\0*.rom;*.col;*.bin\0"
+                      "All files\0*.*\0\0";
     ofn.lpstrFile = path;
     ofn.nMaxFile = sizeof path;
-    ofn.lpstrTitle = title;
-    ofn.Flags = OFN_FILEMUSTEXIST | OFN_PATHMUSTEXIST;
+    ofn.lpstrTitle = "Open Cartridge";
+    ofn.Flags = OFN_FILEMUSTEXIST | OFN_PATHMUSTEXIST | OFN_NOCHANGEDIR;
     if (!GetOpenFileName(&ofn)) return;
-
-    if (is_bios) {
-        if (colecosession_import_bios(g_session, path) < 0)
-            MessageBox(g_hwnd, colecosession_last_error(g_session),
-                       "Import failed", MB_ICONWARNING | MB_OK);
-        else
-            MessageBox(g_hwnd, "BIOS imported. Restart to boot it.",
-                       "Imported", MB_ICONINFORMATION | MB_OK);
-    } else {
-        load_media(path);
-    }
+    load_media(path);
 }
 
 /* ---- settings window -------------------------------------------------------
@@ -299,6 +394,12 @@ static LRESULT CALLBACK settings_proc(HWND hwnd, UINT msg, WPARAM wp,
         case IDC_SET_GAMEPAD:
             settings_apply_checkbox(hwnd, IDC_SET_GAMEPAD, "enable_gamepad", 1);
             return 0;
+        case IDC_SET_IMPORT:
+            import_bios(hwnd, 0);
+            return 0;
+        case IDC_SET_IMPORT_FOLDER:
+            import_bios(hwnd, 1);
+            return 0;
         default:
             break;
         }
@@ -364,6 +465,14 @@ static void settings_label(HWND parent, HINSTANCE inst, const char *text,
     SendMessageA(w, WM_SETFONT, (WPARAM)GetStockObject(DEFAULT_GUI_FONT), TRUE);
 }
 
+static void settings_refresh_roms(void)
+{
+    if (!g_settings_window) return;
+    SetDlgItemTextA(g_settings_window, IDC_SET_ROM_STATE,
+                    colecosession_bios_available(g_session) ? "Imported"
+                                                            : "Not imported");
+}
+
 static void show_settings(HINSTANCE inst)
 {
     /* Same order as every other frontend: the index is what goes into the
@@ -396,7 +505,7 @@ static void show_settings(HINSTANCE inst)
     g_settings_window = CreateWindowA(
         "ColecoSettingsWindow", "Settings",
         WS_OVERLAPPEDWINDOW & ~(WS_MAXIMIZEBOX | WS_THICKFRAME),
-        CW_USEDEFAULT, CW_USEDEFAULT, 400, 410, NULL, NULL, inst, NULL);
+        CW_USEDEFAULT, CW_USEDEFAULT, 400, 590, NULL, NULL, inst, NULL);
 
     settings_label(g_settings_window, inst, "Machine", y, 18);
     y += 24;
@@ -455,6 +564,50 @@ static void show_settings(HINSTANCE inst)
     settings_checkbox(g_settings_window, inst, "Gamepads", IDC_SET_GAMEPAD, y,
                       colecosession_get_int(g_session, "enable_gamepad", 1));
     y += 32;
+
+    settings_label(g_settings_window, inst, "ROMs", y, 18);
+    y += 24;
+    settings_label(g_settings_window, inst,
+                   "The BIOS is not part of the app. Import your own OS7.rom "
+                   "from a file, a zip (MAME's coleco.zip works) or a folder; "
+                   "it is recognised by size and checksum, whatever it is "
+                   "named. Kept in:", y, 52);
+    y += 56;
+    {
+        char rp[1100];
+        HWND h;
+        char *c;
+        snprintf(rp, sizeof rp, "%s", colecosession_roms_path(g_session));
+        for (c = rp; *c; c++)
+            if (*c == '/') *c = '\\';
+        h = CreateWindowExA(0, "STATIC", rp,
+                            WS_CHILD | WS_VISIBLE | SS_LEFT | SS_NOPREFIX |
+                                SS_PATHELLIPSIS,
+                            16, y, 360, 18, g_settings_window,
+                            (HMENU)(INT_PTR)IDC_SET_ROM_PATH, inst, NULL);
+        SendMessageA(h, WM_SETFONT, (WPARAM)font, TRUE);
+        y += 26;
+        h = CreateWindowExA(0, "BUTTON", "Import BIOS...",
+                            WS_CHILD | WS_VISIBLE | WS_TABSTOP, 16, y, 130,
+                            24, g_settings_window,
+                            (HMENU)(INT_PTR)IDC_SET_IMPORT, inst, NULL);
+        SendMessageA(h, WM_SETFONT, (WPARAM)font, TRUE);
+        h = CreateWindowExA(0, "BUTTON", "Import from a Folder...",
+                            WS_CHILD | WS_VISIBLE | WS_TABSTOP, 154, y, 180,
+                            24, g_settings_window,
+                            (HMENU)(INT_PTR)IDC_SET_IMPORT_FOLDER, inst, NULL);
+        SendMessageA(h, WM_SETFONT, (WPARAM)font, TRUE);
+        y += 36;
+        settings_label(g_settings_window, inst,
+                       "ColecoVision BIOS (OS7.rom)", y, 18);
+        h = CreateWindowExA(0, "STATIC", "",
+                            WS_CHILD | WS_VISIBLE | SS_RIGHT | SS_NOPREFIX,
+                            266, y, 110, 18, g_settings_window,
+                            (HMENU)(INT_PTR)IDC_SET_ROM_STATE, inst, NULL);
+        SendMessageA(h, WM_SETFONT, (WPARAM)font, TRUE);
+        y += 32;
+    }
+    settings_refresh_roms();
 
     settings_label(g_settings_window, inst,
                    "Applied by restarting the session when this window "
@@ -643,9 +796,7 @@ static LRESULT CALLBACK wndproc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp)
     case WM_COMMAND:
         switch (LOWORD(wp)) {
         case IDM_OPEN:
-            pick_file("Open Cartridge",
-                      "ColecoVision cartridges\0*.rom;*.col;*.bin\0"
-                      "All files\0*.*\0\0", 0);
+            pick_cart();
             return 0;
         case IDM_EJECT:
             colecosession_set_str(g_session, "cart_path", "");
@@ -655,8 +806,10 @@ static LRESULT CALLBACK wndproc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp)
         case IDM_RESET: colecosession_reset(g_session); return 0;
         case IDM_RESET_CONFIG: colecosession_reset_to_config(g_session); return 0;
         case IDM_IMPORT_BIOS:
-            pick_file("Import ColecoVision BIOS (OS7.rom)",
-                      "BIOS images\0*.rom;*.bin\0All files\0*.*\0\0", 1);
+            import_bios(hwnd, 0);
+            return 0;
+        case IDM_IMPORT_FOLDER:
+            import_bios(hwnd, 1);
             return 0;
         case IDM_KEYPAD:
             coleco_keypad_window_toggle(hwnd, g_session);
@@ -714,8 +867,10 @@ static LRESULT CALLBACK wndproc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp)
     case WM_DROPFILES: {
         char path[MAX_PATH];
         HDROP drop = (HDROP)wp;
-        if (DragQueryFile(drop, 0, path, sizeof path))
-            load_media(path);
+        UINT i, count = DragQueryFile(drop, 0xFFFFFFFFu, NULL, 0);
+        for (i = 0; i < count; i++)
+            if (DragQueryFile(drop, i, path, sizeof path))
+                load_media(path);
         DragFinish(drop);
         return 0;
     }
@@ -736,6 +891,9 @@ int WINAPI WinMain(HINSTANCE inst, HINSTANCE prev, LPSTR cmdline, int show)
     const int n = COLECOSESSION_FB_WIDTH * COLECOSESSION_FB_HEIGHT;
 
     (void)prev;
+
+    /* The folder browser behind Import BIOS from a Folder wants COM. */
+    CoInitializeEx(NULL, COINIT_APARTMENTTHREADED);
 
     g_session = colecosession_new(NULL);
     if (!g_session) {
@@ -786,13 +944,20 @@ int WINAPI WinMain(HINSTANCE inst, HINSTANCE prev, LPSTR cmdline, int show)
                   MF_BYCOMMAND | (g_smooth ? MF_CHECKED : MF_UNCHECKED));
     ShowWindow(g_hwnd, show);
 
+    /* A BIOS named on the command line is imported, not run as a cartridge. */
+    if (cmdline && *cmdline && colecosession_media_is_rom(cmdline)) {
+        const char *one[1];
+        one[0] = cmdline;
+        coleco_import_roms(g_hwnd, g_session, one, 1);
+        cmdline = NULL;
+    }
     colecosession_default_opts(g_session, &opts);
     if (cmdline && *cmdline) opts.cart_path = cmdline;
     if (colecosession_start(g_session, &opts) != 0) {
         /* Show the window anyway: the usual reason to be here is a fresh
-         * install with no BIOS, and the window is where the import lives. */
-        MessageBox(g_hwnd, colecosession_last_error(g_session),
-                   "FujiNet Go ColecoVision", MB_ICONWARNING | MB_OK);
+         * install with no BIOS, and the window is where the import lives --
+         * so offer it. */
+        report_start_failure("FujiNet Go ColecoVision");
     }
 
     /* The family's launch hooks: the way in when the app misbehaves before a

@@ -21,6 +21,7 @@ static void on_activate(AdwApplication *app, gpointer user_data)
 {
     colecosession_start_opts opts;
     GtkWidget *win;
+    char *bios_arg = NULL;
     (void)user_data;
 
     /* One window per process: the machine, and the FujiNet cartridge inside
@@ -36,6 +37,11 @@ static void on_activate(AdwApplication *app, gpointer user_data)
     win = coleco_window_new(app, g_session);
 
     colecosession_default_opts(g_session, &opts);
+    /* A BIOS dump on the command line is imported, not run as a cartridge. */
+    if (g_cart_arg && colecosession_media_is_rom(g_cart_arg)) {
+        bios_arg = g_cart_arg;
+        g_cart_arg = NULL;
+    }
     if (g_cart_arg)
         opts.cart_path = g_cart_arg;
 
@@ -46,12 +52,26 @@ static void on_activate(AdwApplication *app, gpointer user_data)
         g_warning("%s", colecosession_last_error(g_session));
     }
     gtk_window_present(GTK_WINDOW(win));
+    if (bios_arg) {
+        coleco_window_load_media(COLECO_WINDOW(win), bios_arg);
+        g_free(bios_arg);
+    }
 }
 
 static void on_open(GApplication *app, GFile **files, gint n_files,
                     const gchar *hint, gpointer user_data)
 {
+    GtkWindow *win = gtk_application_get_active_window(GTK_APPLICATION(app));
     (void)hint; (void)user_data;
+    /* A second launch with a file hands it to the running window: a BIOS is
+     * imported, a cartridge is run. */
+    if (win && n_files > 0) {
+        g_autofree char *path = g_file_get_path(files[0]);
+        if (path)
+            coleco_window_load_media(COLECO_WINDOW(win), path);
+        gtk_window_present(win);
+        return;
+    }
     if (n_files > 0) {
         g_free(g_cart_arg);
         g_cart_arg = g_file_get_path(files[0]);

@@ -31,7 +31,8 @@ licensed.** This repository does not contain it and does not distribute it.
 - `WITH_COLECO_ROMS=OFF` is the **default**, and every published artifact is
   built that way. The application resolves `OS7.rom` from the user's ROM
   directory (`~/.local/share/fujinet-go-coleco/roms/`) at run time, with an
-  import path in the UI, and says so plainly on first start rather than
+  Import BIOS path in the UI (a file, a zip such as MAME's `coleco.zip`, or a
+  folder; recognised by size and CRC-32 and copied as `OS7.rom`), and says so plainly on first start rather than
   failing silently.
 - `-DWITH_COLECO_ROMS=ON` embeds a local `tools/roms/OS7.rom` for development
   convenience. `.gitignore` refuses ROM images under `tools/roms/`, and

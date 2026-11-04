@@ -16,6 +16,7 @@
 #include <QDragEnterEvent>
 #include <QDropEvent>
 #include <QFileDialog>
+#include <QPushButton>
 
 #include "FujiNetLogWindow.h"
 #include "SettingsDialog.h"
@@ -70,11 +71,6 @@ MainWindow::MainWindow(colecosession *session, QWidget *parent)
      * Wayland window, so this is how a headless check reaches it. */
     if (qEnvironmentVariableIsSet("COLECO_OPEN_SETTINGS"))
         QTimer::singleShot(0, this, &MainWindow::showSettings);
-
-    if (!colecosession_bios_available(session))
-        statusBar()->showMessage(
-            QStringLiteral("No ColecoVision BIOS — use Machine ▸ Import BIOS"),
-            0);
 }
 
 void MainWindow::buildMenus()
@@ -97,17 +93,10 @@ void MainWindow::buildMenus()
     machine->addAction(QStringLiteral("Reset to &CONFIG"), this,
                        [this] { colecosession_reset_to_config(m_session); });
     machine->addSeparator();
-    machine->addAction(QStringLiteral("&Import BIOS..."), this, [this] {
-        const QString f = QFileDialog::getOpenFileName(
-            this, QStringLiteral("Import ColecoVision BIOS (OS7.rom)"));
-        if (f.isEmpty()) return;
-        if (colecosession_import_bios(m_session, f.toLocal8Bit().constData()) < 0)
-            QMessageBox::warning(this, QStringLiteral("Import failed"),
-                QString::fromUtf8(colecosession_last_error(m_session)));
-        else
-            statusBar()->showMessage(
-                QStringLiteral("BIOS imported. Restart to boot it."), 5000);
-    });
+    machine->addAction(QStringLiteral("Import &BIOS..."), this,
+                       [this] { importRoms(false); });
+    machine->addAction(QStringLiteral("Import BIOS from a &Folder..."), this,
+                       [this] { importRoms(true); });
     machine->addSeparator();
     /* Ctrl+comma spelled out rather than QKeySequence::Preferences: that
      * standard key is empty on X11/Wayland (it is a macOS binding), so the
@@ -173,23 +162,91 @@ void MainWindow::showSettings()
         restartSession();
 }
 
+/* ---- the BIOS ------------------------------------------------------------ */
+
+/* The session's refusals that an import cures all say "Import BIOS". */
+void MainWindow::explainRefusal(const QString &title, const QString &why,
+                                std::function<void()> retry)
+{
+    if (!why.contains(QStringLiteral("Import BIOS"))) {
+        QMessageBox::warning(this, title, why);
+        return;
+    }
+    /* not exec(): a nested event loop could be re-entered from a timer */
+    auto *box = new QMessageBox(
+        QMessageBox::Information, title,
+        QStringLiteral("The ColecoVision BIOS is needed"),
+        QMessageBox::NoButton, this);
+    box->setAttribute(Qt::WA_DeleteOnClose);
+    box->setInformativeText(QStringLiteral(
+        "The console runs on its OS-7 BIOS, which is not part of this app. "
+        "Import your own copy (a file, a zip such as MAME's coleco.zip, or a "
+        "folder) and the console starts."));
+    QPushButton *import = box->addButton(QStringLiteral("Import BIOS..."),
+                                         QMessageBox::AcceptRole);
+    box->addButton(QStringLiteral("Not Now"), QMessageBox::RejectRole);
+    box->setDefaultButton(import);
+    connect(box, &QMessageBox::buttonClicked, this,
+            [this, import, retry](QAbstractButton *b) {
+        if (b != import) return;
+        if (SettingsDialog::importRoms(this, m_session, false) <= 0) return;
+        if (retry) retry();
+    });
+    box->open();
+}
+
+bool MainWindow::start(const QString &cartPath)
+{
+    colecosession_start_opts o;
+    const QByteArray cart = cartPath.toLocal8Bit();
+    colecosession_default_opts(m_session, &o);
+    if (!cartPath.isEmpty()) o.cart_path = cart.constData();
+    if (colecosession_start(m_session, &o) == 0) {
+        updateStatus();
+        return true;
+    }
+    explainRefusal(QStringLiteral("Cannot Start the Console"),
+                   QString::fromUtf8(colecosession_last_error(m_session)),
+                   [this, cartPath] { start(cartPath); });
+    return false;
+}
+
+void MainWindow::importRoms(bool folder, const QString &path)
+{
+    const bool wasMissing = !colecosession_bios_available(m_session);
+    if (SettingsDialog::importRoms(this, m_session, folder, path) > 0)
+        afterImport(wasMissing);
+}
+
+/* The BIOS is read at power-up: power-cycle onto what was running (the saved
+ * cartridge, else CONFIG) when it was the missing piece. */
+void MainWindow::afterImport(bool wasMissing)
+{
+    if (!colecosession_is_running(m_session)) {
+        start();
+        return;
+    }
+    if (!wasMissing) {
+        statusBar()->showMessage(
+            QStringLiteral("BIOS imported: it takes effect at the next power cycle"), 6000);
+        return;
+    }
+    colecosession_stop(m_session);
+    if (start())
+        statusBar()->showMessage(
+            QStringLiteral("ROMs imported: the console was power-cycled to use them"), 6000);
+}
+
 /* Stop, re-read the settings store, start. Every option the Preferences
  * dialog writes is read by colecosession_default_opts(), so this is the only
  * way any of them can take effect. */
 void MainWindow::restartSession()
 {
-    colecosession_start_opts o;
     colecosession_settings_flush(m_session);
-    colecosession_default_opts(m_session, &o);
     colecosession_stop(m_session);
-    if (colecosession_start(m_session, &o) != 0) {
-        QMessageBox::warning(
-            this, QStringLiteral("Restart failed"),
-            QString::fromUtf8(colecosession_last_error(m_session)));
-        return;
-    }
-    statusBar()->showMessage(
-        QStringLiteral("Machine options applied (session restarted)"), 5000);
+    if (start())
+        statusBar()->showMessage(
+            QStringLiteral("Machine options applied (session restarted)"), 5000);
 }
 
 void MainWindow::toggleKeypad()
@@ -230,6 +287,12 @@ void MainWindow::updateStatus()
 void MainWindow::loadMedia(const QString &path)
 {
     char dest[1024];
+    /* A BIOS dump is a ROM, not a cartridge, though it is a .rom or .bin:
+     * import it straight away, no chooser. */
+    if (colecosession_media_is_rom(path.toLocal8Bit().constData())) {
+        importRoms(false, path);
+        return;
+    }
     if (colecosession_import_media(m_session, path.toLocal8Bit().constData(),
                                    dest, sizeof dest) != 0) {
         QMessageBox::warning(this, QStringLiteral("Import failed"),
@@ -245,12 +308,8 @@ void MainWindow::loadMedia(const QString &path)
     colecosession_set_str(m_session, "cart_path", dest);
     colecosession_settings_flush(m_session);
 
-    colecosession_start_opts o;
-    colecosession_default_opts(m_session, &o);
     colecosession_stop(m_session);
-    if (colecosession_start(m_session, &o) != 0)
-        QMessageBox::warning(this, QStringLiteral("Could not start"),
-            QString::fromUtf8(colecosession_last_error(m_session)));
+    start();
 }
 
 void MainWindow::pushInput()

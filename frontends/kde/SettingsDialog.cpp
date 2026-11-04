@@ -9,6 +9,11 @@
 #include <QCheckBox>
 #include <QComboBox>
 #include <QDialogButtonBox>
+#include <QFileDialog>
+#include <QFileInfo>
+#include <QHBoxLayout>
+#include <QPushButton>
+#include <QTabWidget>
 #include <QFormLayout>
 #include <QGroupBox>
 #include <QLabel>
@@ -43,7 +48,54 @@ bool commit(colecosession *s, const char *key, int def, int value)
     return true;
 }
 
+const char *const kRomFilter =
+    "BIOS images and ROM sets (*.zip *.rom *.bin *.ZIP *.ROM *.BIN);;All files (*)";
+
 } // namespace
+
+int SettingsDialog::importRoms(QWidget *parent, colecosession *session,
+                               bool folder, const QString &path)
+{
+    QStringList inputs;
+    if (!path.isEmpty()) {
+        inputs << path;
+    } else if (folder) {
+        const QString dir = QFileDialog::getExistingDirectory(
+            parent, QStringLiteral("Import BIOS from a Folder"));
+        if (dir.isEmpty()) return -1;
+        inputs << dir;
+    } else {
+        inputs = QFileDialog::getOpenFileNames(
+            parent, QStringLiteral("Import BIOS"), QString(),
+            QString::fromUtf8(kRomFilter));
+        if (inputs.isEmpty()) return -1;
+    }
+
+    int total = 0;
+    bool trouble = false;
+    QStringList said;
+    for (const QString &in : inputs) {
+        char msg[1024] = "";
+        const int rc = colecosession_rom_import(
+            session, in.toLocal8Bit().constData(), msg, sizeof msg);
+        if (rc > 0) total += rc;
+        if (rc <= 0) trouble = true;
+        QString text = QString::fromUtf8(
+            msg[0] ? msg : colecosession_last_error(session));
+        if (inputs.size() > 1)
+            text = QStringLiteral("%1: %2").arg(QFileInfo(in).fileName(), text);
+        said << text;
+    }
+    /* the session's message always says what happened: show it whole */
+    const QString text = said.join(QStringLiteral("\n\n"));
+    if (total == 0)
+        QMessageBox::warning(parent, QStringLiteral("Nothing Imported"), text);
+    else if (trouble)
+        QMessageBox::warning(parent, QStringLiteral("BIOS Imported"), text);
+    else
+        QMessageBox::information(parent, QStringLiteral("BIOS Imported"), text);
+    return total;
+}
 
 bool SettingsDialog::run(QWidget *parent, colecosession *session)
 {
@@ -53,6 +105,11 @@ bool SettingsDialog::run(QWidget *parent, colecosession *session)
      * descriptions wrap into an unreadable column. */
     dlg.setMinimumWidth(460);
     auto *outer = new QVBoxLayout(&dlg);
+    auto *tabs = new QTabWidget;
+    outer->addWidget(tabs);
+    auto *machinePage = new QWidget;
+    auto *pageLayout = new QVBoxLayout(machinePage);
+    tabs->addTab(machinePage, QStringLiteral("Machine"));
 
     auto *machine = new QGroupBox(QStringLiteral("Machine"));
     auto *mform = new QFormLayout(machine);
@@ -71,7 +128,7 @@ bool SettingsDialog::run(QWidget *parent, colecosession *session)
     mform->addRow(sgm);
     mform->addRow(QStringLiteral("Palette"), palette);
     mform->addRow(swap);
-    outer->addWidget(machine);
+    pageLayout->addWidget(machine);
 
     auto *net = new QGroupBox(QStringLiteral("FujiNet"));
     auto *nform = new QFormLayout(net);
@@ -93,7 +150,7 @@ bool SettingsDialog::run(QWidget *parent, colecosession *session)
     QObject::connect(external, &QCheckBox::toggled, externalAddr,
                      &QWidget::setEnabled);
     nform->addRow(QStringLiteral("Address:port"), externalAddr);
-    outer->addWidget(net);
+    pageLayout->addWidget(net);
 
     auto *host = new QGroupBox(QStringLiteral("Host"));
     auto *hform = new QFormLayout(host);
@@ -103,7 +160,59 @@ bool SettingsDialog::run(QWidget *parent, colecosession *session)
                             "enable_gamepad", 1);
     hform->addRow(audio);
     hform->addRow(pads);
-    outer->addWidget(host);
+    pageLayout->addWidget(host);
+
+    pageLayout->addStretch(1);
+
+    /* ---- ROMs ---- */
+    bool imported = false;
+    auto *romsPage = new QWidget;
+    auto *rv = new QVBoxLayout(romsPage);
+    auto *intro = new QLabel(QStringLiteral(
+        "The ColecoVision BIOS is not part of the app. Import your own dump "
+        "from a file, a zip (MAME's coleco.zip works) or a folder; it is "
+        "recognised by its size and checksum, whatever it is called. Kept in:"));
+    intro->setWordWrap(true);
+    rv->addWidget(intro);
+    auto *romPath = new QLabel(QString::fromLocal8Bit(
+        colecosession_roms_path(session)));
+    romPath->setTextInteractionFlags(Qt::TextSelectableByMouse);
+    romPath->setWordWrap(true);
+    rv->addWidget(romPath);
+    auto *romRow = new QHBoxLayout;
+    auto *importFiles = new QPushButton(QStringLiteral("Import BIOS..."));
+    auto *importFolder =
+        new QPushButton(QStringLiteral("Import from a Folder..."));
+    romRow->addWidget(importFiles);
+    romRow->addWidget(importFolder);
+    romRow->addStretch(1);
+    rv->addLayout(romRow);
+    auto *romBox = new QGroupBox(QStringLiteral("Console"));
+    auto *romForm = new QFormLayout(romBox);
+    auto *romName = new QLabel(QStringLiteral("ColecoVision BIOS (OS7.rom)"));
+    romName->setToolTip(QStringLiteral("OS7.rom, 8192 bytes"));
+    auto *romState = new QLabel;
+    romForm->addRow(romName, romState);
+    rv->addWidget(romBox);
+    rv->addStretch(1);
+    auto refreshRoms = [&] {
+        const bool have = colecosession_bios_available(session) != 0;
+        romState->setText(have ? QStringLiteral("Imported")
+                               : QStringLiteral("Not imported"));
+        romState->setStyleSheet(
+            have ? QString()
+                 : QStringLiteral("color: palette(placeholder-text);"));
+    };
+    refreshRoms();
+    QObject::connect(importFiles, &QPushButton::clicked, &dlg, [&] {
+        if (importRoms(&dlg, session, false) > 0) imported = true;
+        refreshRoms();
+    });
+    QObject::connect(importFolder, &QPushButton::clicked, &dlg, [&] {
+        if (importRoms(&dlg, session, true) > 0) imported = true;
+        refreshRoms();
+    });
+    tabs->addTab(romsPage, QStringLiteral("ROMs"));
 
     auto *note = new QLabel(
         QStringLiteral("Applied by restarting the session."));
@@ -134,9 +243,9 @@ bool SettingsDialog::run(QWidget *parent, colecosession *session)
     outer->addWidget(buttons);
 
     if (dlg.exec() != QDialog::Accepted)
-        return false;
+        return imported;    /* an import is already on disk, Cancel or not */
 
-    bool changed = false;
+    bool changed = imported;
     changed |= commit(session, "sgm", 1, sgm->isChecked() ? 1 : 0);
     changed |= commit(session, "palette", 0, palette->currentIndex());
     changed |= commit(session, "swap_buttons", 0, swap->isChecked() ? 1 : 0);

@@ -82,6 +82,7 @@
     NSTimer *_statusTimer;
     NSWindow *_settingsWindow;
     NSTextField *_externalField;
+    NSTextField *_biosState;   /* the Settings ROMs row; nil until opened */
     BOOL _sessionDirty;
     NSWindow *_logWindow;
     NSTextView *_logView;
@@ -137,11 +138,9 @@
     if (colecosession_start(_session, &opts) != 0) {
         /* Show the window anyway: the usual reason to be here is a fresh
          * install with no BIOS, and the window is where the import lives. */
-        NSAlert *a = [[NSAlert alloc] init];
-        [a setMessageText:@"Could not start"];
-        [a setInformativeText:
-            [NSString stringWithUTF8String:colecosession_last_error(_session)]];
-        [a runModal];
+        [self reportRefusal:@"Could not start"
+                      error:[NSString stringWithUTF8String:
+                                 colecosession_last_error(_session)]];
     }
 
     /* The family's launch hooks, for when the app misbehaves before a menu
@@ -226,6 +225,9 @@
                  keyEquivalent:@""] setTarget:self];
     [machine addItem:[NSMenuItem separatorItem]];
     [[machine addItemWithTitle:@"Import BIOS…" action:@selector(importBios:)
+                 keyEquivalent:@""] setTarget:self];
+    [[machine addItemWithTitle:@"Import BIOS from a Folder…"
+                        action:@selector(importBiosFolder:)
                  keyEquivalent:@""] setTarget:self];
     [machineItem setSubmenu:machine];
     [bar addItem:machineItem];
@@ -365,6 +367,9 @@
     _externalField.action = @selector(externalAddrChanged:);
     [_externalField.cell setSendsActionOnEndEditing:YES];
 
+    _biosState = [NSTextField labelWithString:@""];
+    [self refreshRoms];
+
     NSArray<NSArray<NSView *> *> *rows = @[
         @[ [self sectionLabel:@"Machine"], [NSTextField labelWithString:@""] ],
         @[
@@ -384,6 +389,10 @@
             [NSTextField labelWithString:@"Swap controller buttons"],
             [self checkBoxForKey:"swap_buttons" fallback:0]
         ],
+        @[ [self sectionLabel:@"ROMs"], [NSTextField labelWithString:@""] ],
+        @[ [NSTextField labelWithString:@"Import"], [self romButtons] ],
+        @[ [NSTextField labelWithString:@"Kept in"], [self romPathLabel] ],
+        @[ [NSTextField labelWithString:@"OS7.rom"], _biosState ],
         @[ [self sectionLabel:@"FujiNet"], [NSTextField labelWithString:@""] ],
         @[
             [NSTextField labelWithString:@"Enable FujiNet"],
@@ -423,7 +432,7 @@
     root.edgeInsets = NSEdgeInsetsMake(16, 16, 16, 16);
 
     _settingsWindow = [[NSWindow alloc]
-        initWithContentRect:NSMakeRect(0, 0, 440, 330)
+        initWithContentRect:NSMakeRect(0, 0, 460, 430)
                   styleMask:NSWindowStyleMaskTitled |
                             NSWindowStyleMaskClosable |
                             NSWindowStyleMaskMiniaturizable
@@ -439,6 +448,43 @@
     [_settingsWindow makeKeyAndOrderFront:nil];
 }
 
+/* The Settings ROMs section: two buttons, the folder the ROMs are kept in and
+ * whether OS7.rom is there. Importing applies at once, not on close. */
+- (NSView *)romButtons
+{
+    NSButton *files = [NSButton buttonWithTitle:@"Import BIOS…"
+                                         target:self
+                                         action:@selector(importBios:)];
+    NSButton *folder = [NSButton buttonWithTitle:@"Import from a Folder…"
+                                          target:self
+                                          action:@selector(importBiosFolder:)];
+    NSStackView *row = [NSStackView stackViewWithViews:@[ files, folder ]];
+    row.orientation = NSUserInterfaceLayoutOrientationHorizontal;
+    row.spacing = 8;
+    return row;
+}
+
+- (NSTextField *)romPathLabel
+{
+    NSTextField *l = [NSTextField labelWithString:
+        [NSString stringWithUTF8String:colecosession_roms_path(_session)]];
+    l.selectable = YES;
+    l.lineBreakMode = NSLineBreakByTruncatingMiddle;
+    l.preferredMaxLayoutWidth = 260;
+    l.font = [NSFont systemFontOfSize:NSFont.smallSystemFontSize];
+    l.textColor = NSColor.secondaryLabelColor;
+    return l;
+}
+
+- (void)refreshRoms
+{
+    if (!_biosState) return;
+    const BOOL have = colecosession_bios_available(_session) != 0;
+    _biosState.stringValue = have ? @"Imported" : @"Not imported";
+    _biosState.textColor =
+        have ? NSColor.controlTextColor : NSColor.secondaryLabelColor;
+}
+
 - (void)windowWillClose:(NSNotification *)note
 {
     if (note.object == _logWindow) {
@@ -447,8 +493,10 @@
         _logTimer = nil;
         return;
     }
-    if (note.object == _settingsWindow)
+    if (note.object == _settingsWindow) {
         [_settingsWindow makeFirstResponder:nil]; /* commit a field edit */
+        _biosState = nil;
+    }
     if (note.object != _settingsWindow || !_sessionDirty)
         return;
     _sessionDirty = NO;
@@ -465,6 +513,11 @@
 - (void)loadMedia:(NSString *)path
 {
     char dest[1024];
+    /* A BIOS dump is a ROM, not a cartridge, though it is a .rom or .bin. */
+    if (colecosession_media_is_rom([path UTF8String])) {
+        [self importRomPaths:@[ path ]];
+        return;
+    }
     if (colecosession_import_media(_session, [path UTF8String], dest,
                                    sizeof dest) != 0) {
         NSAlert *a = [[NSAlert alloc] init];
@@ -488,7 +541,10 @@
     colecosession_start_opts o;
     colecosession_default_opts(_session, &o);
     colecosession_stop(_session);
-    colecosession_start(_session, &o);
+    if (colecosession_start(_session, &o) != 0)
+        [self reportRefusal:@"Could not open"
+                      error:[NSString stringWithUTF8String:
+                                 colecosession_last_error(_session)]];
 }
 
 - (void)openCart:(id)sender
@@ -515,22 +571,106 @@
     colecosession_reset_to_config(_session);
 }
 
+/* ---- Import BIOS -----------------------------------------------------------
+ * Like the Odyssey 2 and MS-DOS desktops: files (several at once, zips
+ * included) or a folder, one result alert, and a power cycle when the import
+ * supplied the BIOS the machine was waiting for. */
+
+- (void)alert:(NSString *)title text:(NSString *)text
+{
+    NSAlert *a = [[NSAlert alloc] init];
+    [a setMessageText:title];
+    [a setInformativeText:text];
+    [a runModal];
+}
+
+/* "Import BIOS…" / "Not Now". Choosing Import opens the files chooser. */
+- (void)askForRoms:(NSString *)title text:(NSString *)text
+{
+    NSAlert *a = [[NSAlert alloc] init];
+    [a setMessageText:title];
+    [a setInformativeText:text];
+    [a addButtonWithTitle:@"Import BIOS…"];
+    [a addButtonWithTitle:@"Not Now"];
+    if ([a runModal] == NSAlertFirstButtonReturn)
+        [self importRomsFromPanel:NO];
+}
+
+/* A refusal whose text says to import the BIOS gets the offer; anything else
+ * is a plain alert. */
+- (void)reportRefusal:(NSString *)title error:(NSString *)error
+{
+    if ([error rangeOfString:@"Import BIOS"].location != NSNotFound)
+        [self askForRoms:title text:error];
+    else
+        [self alert:title text:error];
+}
+
+- (void)importRomsFromPanel:(BOOL)folder
+{
+    NSOpenPanel *p = [NSOpenPanel openPanel];
+    p.canChooseDirectories = folder;
+    p.canChooseFiles = !folder;
+    p.allowsMultipleSelection = !folder;
+    p.message = folder
+        ? @"Import BIOS from a Folder (MAME's ROM folder works)"
+        : @"Import BIOS: OS7.rom, or a zip (MAME's coleco.zip works)";
+    if ([p runModal] != NSModalResponseOK) return;
+
+    NSMutableArray<NSString *> *paths = [NSMutableArray array];
+    for (NSURL *u in p.URLs)
+        [paths addObject:u.path];
+    [self importRomPaths:paths];
+}
+
+/* Imports every path in turn and says what happened, always. Returns the
+ * number of items taken. */
+- (int)importRomPaths:(NSArray<NSString *> *)paths
+{
+    const BOOL wasMissing =
+        !colecosession_bios_available(_session) ||
+        !colecosession_is_running(_session);
+    NSMutableString *log = [NSMutableString string];
+    int total = 0;
+
+    for (NSString *path in paths) {
+        char msg[2048];
+        const int rc = colecosession_rom_import(_session, path.UTF8String,
+                                                msg, sizeof msg);
+        if (rc > 0) total += rc;
+        if (msg[0]) {
+            if (log.length) [log appendString:@"\n"];
+            [log appendString:[NSString stringWithUTF8String:msg]];
+        }
+    }
+    [self refreshRoms];
+
+    if (total > 0 && wasMissing) {
+        colecosession_start_opts o;
+        colecosession_default_opts(_session, &o);
+        colecosession_stop(_session);
+        if (colecosession_start(_session, &o) == 0) {
+            [log appendString:@"\n\nThe console was power-cycled with the "
+                              @"new ROMs."];
+        } else {
+            [log appendFormat:@"\n\n%s", colecosession_last_error(_session)];
+        }
+    }
+    [self alert:(total > 0 ? @"BIOS Imported" : @"Nothing Imported")
+           text:(log.length ? log : @"None of these files is a ROM this app uses.")];
+    return total;
+}
+
 - (void)importBios:(id)sender
 {
     (void)sender;
-    NSOpenPanel *p = [NSOpenPanel openPanel];
-    [p setAllowedFileTypes:@[@"rom", @"bin"]];
-    if ([p runModal] != NSModalResponseOK) return;
-    NSAlert *a = [[NSAlert alloc] init];
-    if (colecosession_import_bios(_session, [[[p URL] path] UTF8String]) < 0) {
-        [a setMessageText:@"Import failed"];
-        [a setInformativeText:
-            [NSString stringWithUTF8String:colecosession_last_error(_session)]];
-    } else {
-        [a setMessageText:@"BIOS imported"];
-        [a setInformativeText:@"Restart to boot it."];
-    }
-    [a runModal];
+    [self importRomsFromPanel:NO];
+}
+
+- (void)importBiosFolder:(id)sender
+{
+    (void)sender;
+    [self importRomsFromPanel:YES];
 }
 
 - (void)toggleKeypad:(id)sender
@@ -680,7 +820,20 @@
     NSArray *urls = [[sender draggingPasteboard]
         readObjectsForClasses:@[[NSURL class]] options:nil];
     if ([urls count] == 0) return NO;
-    [self loadMedia:[(NSURL *)urls[0] path]];
-    return YES;
+    /* ROMs first and together, under one report; then the first thing that
+     * is not a ROM is opened as before. */
+    NSMutableArray<NSString *> *roms = [NSMutableArray array];
+    NSString *other = nil;
+    for (NSURL *u in urls) {
+        NSString *path = [u path];
+        if (!path) continue;
+        if (colecosession_media_is_rom(path.UTF8String))
+            [roms addObject:path];
+        else if (!other)
+            other = path;
+    }
+    if (roms.count) [self importRomPaths:roms];
+    if (other) [self loadMedia:other];
+    return roms.count || other;
 }
 @end

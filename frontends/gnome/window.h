@@ -13,3 +13,15 @@ G_DECLARE_FINAL_TYPE(ColecoWindow, coleco_window, COLECO, WINDOW,
                      AdwApplicationWindow)
 
 GtkWidget *coleco_window_new(AdwApplication *app, colecosession *session);
+
+/* Import BIOS: a chooser for files (several, zips allowed) or one folder, then
+ * a result dialog over `over` (the window when NULL). `apply` power-cycles the
+ * console when the import supplied a BIOS that was missing. `done` gets the
+ * number of items imported, or -1 if the chooser was cancelled. */
+void coleco_window_import_bios(ColecoWindow *self, GtkWidget *over, gboolean folder,
+                               gboolean apply, void (*done)(int imported, gpointer user_data),
+                               gpointer user_data);
+
+/* A dropped or command-line file: a BIOS dump is imported, a cartridge is run,
+ * a disk image goes to FujiNet's SD folder. */
+void coleco_window_load_media(ColecoWindow *self, const char *path);

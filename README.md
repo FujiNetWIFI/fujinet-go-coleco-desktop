@@ -72,8 +72,10 @@ in those checkouts. `-DFRONTEND=none` builds just the core and its tests.
 
 The ColecoVision OS-7 BIOS is copyrighted Coleco firmware and is **not**
 redistributed here. Published builds use `-DWITH_COLECO_ROMS=OFF` (the
-default) and import the BIOS from the user's ROM directory at run time. For
-local development, put `OS7.rom` in `tools/roms/` and configure with
+default) and import the BIOS from the user's ROM directory at run time.
+**Import BIOS** takes a file, a zip (MAME's `coleco.zip` works) or a folder,
+identifies the dump by size and CRC-32 whatever it is called, and stores it as
+`OS7.rom`. For local development, put `OS7.rom` in `tools/roms/` and configure with
 `-DWITH_COLECO_ROMS=ON`. See `COMPLIANCE.md`.
 
 ## Ports

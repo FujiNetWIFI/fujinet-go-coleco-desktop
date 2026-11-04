@@ -20,11 +20,19 @@ extern "C" {
 class SettingsDialog : public QDialog {
     Q_OBJECT
 public:
-    /* Returns true if a machine option changed, i.e. the caller should
-     * restart the session. Returns false on Cancel, and also on OK when
+    /* Returns true if a machine option changed or a BIOS was imported, i.e. the
+     * caller should restart the session. Returns false on Cancel, and also on OK when
      * nothing was actually altered -- restarting the machine because
      * somebody opened the dialog and pressed OK would be gratuitous. */
     static bool run(QWidget *parent, colecosession *session);
+
+    /* Import BIOS: the user's own dump from `path` or, when that is empty,
+     * from a file chooser (several files at once, zips included) or, with
+     * `folder`, from a folder picked with one. Shows what the session says
+     * happened for every input. Returns how many ROMs were imported, or -1
+     * when the chooser was cancelled. Takes effect at the next power cycle. */
+    static int importRoms(QWidget *parent, colecosession *session, bool folder,
+                          const QString &path = QString());
 };
 
 #endif

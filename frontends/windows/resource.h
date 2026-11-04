@@ -9,6 +9,7 @@
 #define IDM_RESET          1003
 #define IDM_RESET_CONFIG   1004
 #define IDM_IMPORT_BIOS    1005
+#define IDM_IMPORT_FOLDER  1007
 #define IDM_EXIT           1006
 #define IDM_KEYPAD         1010
 #define IDM_DEBUGGER       1013
@@ -27,6 +28,10 @@
 #define IDC_SET_NOTE       2007
 #define IDC_SET_EXTERNAL   2008
 #define IDC_SET_EXT_ADDR   2009
+#define IDC_SET_ROM_PATH   2010
+#define IDC_SET_IMPORT     2011
+#define IDC_SET_IMPORT_FOLDER 2012
+#define IDC_SET_ROM_STATE  2013
 
 #define IDM_FUJINET_LOG    1021
 #define IDC_LOG_EDIT       2100

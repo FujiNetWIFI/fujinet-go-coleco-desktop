@@ -25,16 +25,10 @@ int main(int argc, char **argv)
 
     MainWindow win(session);
 
-    colecosession_start_opts opts;
-    colecosession_default_opts(session, &opts);
-    if (argc > 1) opts.cart_path = argv[1];
-
-    if (colecosession_start(session, &opts) != 0) {
-        /* Show the window anyway: the usual reason to be here is a fresh
-         * install with no BIOS, and the window is where the import lives. */
-        qWarning("%s", colecosession_last_error(session));
-    }
     win.show();
+    /* A refusal for want of a BIOS (the usual state of a fresh install) opens
+     * the import offer over the window, which is where the import lives. */
+    win.start(argc > 1 ? QString::fromLocal8Bit(argv[1]) : QString());
 
     const int rc = app.exec();
     colecosession_stop(session);
