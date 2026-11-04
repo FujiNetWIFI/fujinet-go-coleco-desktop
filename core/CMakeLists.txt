@@ -9,7 +9,8 @@
 #
 #   coleco/fuji-generated/  the cartridge firmware's OWN protocol sources --
 #                         fujimail.c (the mailbox), fujibus.c (the SLIP +
-#                         FujiBus wire codec), colmap.c (every ColecoVision
+#                         FujiBus wire codec), fuji_cfg.c (the .cfg's
+#                         mapper= line), colmap.c (every ColecoVision
 #                         mapper) and the emulator-side fujitcp transport --
 #                         staged by cmake/StageFujiProto.cmake. Compiling
 #                         these rather than reimplementing them is what makes
@@ -51,6 +52,7 @@ adamcore_sources(COLECO_ADAMCORE_SOURCES ROOT "${ADAMCORE_GEN}")
 set(COLECO_FUJI_SOURCES
   ${FUJI_GEN}/fujimail.c
   ${FUJI_GEN}/fujibus.c
+  ${FUJI_GEN}/fuji_cfg.c
   ${FUJI_GEN}/colmap.c
 )
 if(WIN32)

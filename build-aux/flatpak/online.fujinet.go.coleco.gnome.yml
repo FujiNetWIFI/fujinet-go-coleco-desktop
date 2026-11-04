@@ -117,14 +117,14 @@ modules:
         url: https://github.com/tschak909/adamcore
         commit: 611bfe4d0a6ac76166588ca674ba2d46d10d6bf4
         dest: third_party/adamcore
-      # Pinned exactly as cmake/Dependencies.cmake: the colecovision-bringup
-      # commit (pico/coleco) plus the BoIP idle-wait fix (PR #2247), on the
-      # fork. Temporary: moves back to master when #2247 merges.
+      # Pinned exactly as cmake/Dependencies.cmake: fujinet-firmware master
+      # plus the assembly CONFIG (PR #2288), on the fork. Temporary: moves
+      # back to master when #2288 merges.
       # coleco_provide_dependency() skips its own fetch once it finds build.sh
       # (the SENTINEL) already here.
       - type: git
         url: https://github.com/tschak909/fujinet-firmware
-        commit: 476b1bf7591a6fd0a1f689c4750214c45b4ff8be
+        commit: 61193e3c85efc85b44487e11a7b75aa16d2acbf2
         dest: third_party/fujinet-firmware
       # Same reasoning: the sandboxed build step has no network access, but
       # tools/fujinet/build-fujinet-desktop.sh needs mbedTLS 3.x and

@@ -14,6 +14,7 @@
 /* The cartridge firmware's own sources, staged verbatim. */
 #include "fuji_mailbox.h"
 #include "fujimail.h"
+#include "fuji_cfg.h"
 #include "fujitcp.h"
 #include "fujiconfigrom.h"
 
@@ -142,13 +143,14 @@ static uint8_t c_stream_close(int stream, uint32_t got, bool aborted)
     v = &c->rx[stream & 1];
 
     if (stream == FN_STREAM_CFG) {
-        /* The mapper hint. Three Activision cartridges are 64K and two Opcode
-         * SGC cartridges are 128K, and both sizes are also MegaCart sizes --
-         * nothing in the image can tell them apart, so a one-line .cfg has
-         * to. */
-        c->pending_hint = (aborted || v->len == 0)
-            ? COLMAP_KIND_AUTO
-            : colmap_parse_cfg((const char *)v->p, v->len);
+        /* The .cfg's mapper= tells Activision and SGC cartridges from
+         * MegaCarts of the same size. */
+        fuji_cfg_t cfg;
+
+        fuji_cfg_open(&cfg);
+        fuji_cfg_write(&cfg, v->p, (unsigned)v->len);
+        fuji_cfg_close(&cfg, aborted);
+        c->pending_hint = colmap_kind_named(fuji_cfg_mapper(&cfg));
         bb_clear(v);
         return 0;
     }
@@ -354,17 +356,17 @@ static void t_send_bare(uint8_t device, uint8_t command,
 
 /* wait_link_ms is NULL: fujitcp's round trip is synchronous, so there is
  * nothing to pump while waiting. bootsel is NULL: there is no RP2040 to
- * reboot into a bootloader here. */
+ * reboot into a bootloader here. own_reg is NULL: no platform registers. */
 static const fujimail_port_t port_quiet = {
     c_poke, c_link_up, t_transact, t_send_bare,
     c_stream_open, c_stream_write, c_stream_close, c_arm_swap,
-    NULL, NULL, NULL, NULL
+    NULL, NULL, NULL, NULL, NULL
 };
 
 static const fujimail_port_t port_debug = {
     c_poke, c_link_up, t_transact, t_send_bare,
     c_stream_open, c_stream_write, c_stream_close, c_arm_swap,
-    NULL, NULL, c_on_txn, c_on_dbc
+    NULL, NULL, c_on_txn, c_on_dbc, NULL
 };
 
 /* ---- serving -------------------------------------------------------------- */

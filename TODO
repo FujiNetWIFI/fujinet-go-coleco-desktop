@@ -45,16 +45,16 @@ Done (this pass) -- M0
       trees ignored.
   [x] cmake/Dependencies.cmake -- coleco_provide_dependency(), transposed from
       astrocade's. adamcore pinned 2fd4ff058; fujinet-firmware pinned
-      844eb6f24 on branch colecovision-bringup (pico/coleco is NOT on master).
+      on fork branch coleco-asm-config (master + fujinet-firmware #2288).
   [x] cmake/StageAdamcore.cmake -- stages include/ + src/ into
       core/adamcore-generated. Keys the .source-info marker on the source
       commit AND a hash of the staging file itself, so editing the stage
       re-stages. Detects whether the pin carries adamcore_cart_ops yet and
       says so plainly instead of letting core/ fail on an unknown type.
-  [x] cmake/StageFujiProto.cmake -- stages the ten protocol files
-      pico/coleco/emu/apply.sh grafts into MAME, unpatched, into
-      core/coleco/fuji-generated. Errors at configure time naming the
-      colecovision-bringup branch if the pin has no fuji_mailbox.h.
+  [x] cmake/StageFujiProto.cmake -- stages the protocol files
+      pico/coleco/emu/apply.sh grafts into MAME (from pico/coleco and
+      pico/common), unpatched, into core/coleco/fuji-generated. Errors at
+      configure time if the pin lacks them.
       Deliberately does NOT reproduce apply.sh's fujins.h symbol prefixing:
       that exists because two FujiNet carts in one MAME binary collide on
       fujimail_paint(), and only one is ever linked here. Comment says so.

@@ -13,14 +13,12 @@
 #                     by cmake/StageAdamcore.cmake and compiled as if it were
 #                     ours, the same arrangement fujinet-go-adam-desktop uses.
 #
-#   fujinet-firmware  Unlike most sibling desktop apps this pin is NOT on
-#                     master: the ColecoVision cart protocol (pico/coleco --
-#                     the mailbox spec in fuji_mailbox.h, the shared
-#                     fujibus/fujimail/colmap sources, and the MAME cart
-#                     device core/coleco/fujinet_cart.c is transposed from)
-#                     lives on the colecovision-bringup branch, pending its
-#                     merge into master. Moving to master later is a pin bump
-#                     here and in both flatpak manifests, nothing more.
+#   fujinet-firmware  The ColecoVision cart protocol (pico/coleco and
+#                     pico/common -- the mailbox spec in fuji_mailbox.h, the
+#                     shared fujibus/fujimail/fuji_cfg/colmap sources, the
+#                     baked CONFIG, and the MAME cart device
+#                     core/coleco/fujinet_cart.c is transposed from). The pin
+#                     is on the tschak909 fork until its two commits merge.
 #
 # Resolution order:
 #   1. ADAMCORE_SRC / FUJINET_SRC (cache variable or environment) -- an
@@ -44,23 +42,18 @@ find_package(Git QUIET)
 set(ADAMCORE_COMMIT "611bfe4d0a6ac76166588ca674ba2d46d10d6bf4")
 set(ADAMCORE_URL "https://github.com/tschak909/adamcore")
 
-# fujinet-firmware, fork branch boip-idle-wait-on-coleco-config (476b1bf75):
-# the previous pin (902dd043f, colecovision-bringup) plus the BoIP idle-wait
-# fix, fujinet-firmware PR #2247 (idle wakeups ~1000/s -> ~100/s). TEMPORARY:
-# the pin returns to master when #2247 merges. The commit lives only on the
-# fork, hence the tschak909 URL. The old pin contains the
-# complete pico/coleco port: the mailbox protocol, all five cartridge mappers
-# in colmap.c, the baked-in CONFIG client, the MAME cart device, and the .col
-# media-type registration without which no cartridge in the No-Intro set
-# reaches MediaTypeROM. As of this pin the baked client is the real
-# fujinet-config coleco/ port (WiFi setup, host rename, browse with filter,
-# copy, lobby, boot) rather than the bring-up stand-in, and COPY_FILE shares
-# MOUNT_IMAGE's 60-second transaction budget. Recorded in three places --
-# here and in both flatpak manifests (build-aux/flatpak/*.yml). The pinned
-# commit has moved on the server before in a sibling repo, so treat a failed
-# fetch of this exact hash as "the branch was rebased/merged", not as a
+# fujinet-firmware, fork branch coleco-asm-config (61193e3c8): master 319d29b37
+# plus the two commits of fujinet-firmware PR #2288 -- the status page's boot
+# byte counters (FN_R_BOOT_GOT0/TOT0) and the baked assembly CONFIG
+# (fujinet-config #373, with its progress window). TEMPORARY: the pin returns
+# to master when #2288 merges. The commits live only on the fork, hence the
+# tschak909 URL. Master already carries the BoIP idle-wait fix (#2247), the
+# shared pico/common sources and the five-mapper colmap.c. Recorded in three
+# places -- here and in both flatpak manifests (build-aux/flatpak/*.yml). The
+# pinned commit has moved on the server before in a sibling repo, so treat a
+# failed fetch of this exact hash as "the branch was rebased/merged", not as a
 # network fault.
-set(FUJINET_COMMIT "476b1bf7591a6fd0a1f689c4750214c45b4ff8be")
+set(FUJINET_COMMIT "61193e3c85efc85b44487e11a7b75aa16d2acbf2")
 set(FUJINET_URL "https://github.com/tschak909/fujinet-firmware")
 
 # coleco_provide_dependency(NAME <n> PATH <p> SENTINEL <file> OVERRIDE <VAR>
