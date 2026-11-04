@@ -60,6 +60,14 @@ target_link_libraries(external_test coleco_session)
 add_test(NAME external COMMAND external_test "${CMAKE_SOURCE_DIR}/tools/roms")
 set_tests_properties(external PROPERTIES SKIP_RETURN_CODE 77 TIMEOUT 60)
 
+# Import BIOS end to end, without a machine: a file, a zip, a folder 8 levels
+# deep with zips in it, the unknown-CRC rule, and a dropped BIOS routed to the
+# ROM directory. Generated fillers with the right CRC (no firmware).
+add_executable(roms_import_test roms_import_test.c)
+target_link_libraries(roms_import_test coleco_session)
+target_include_directories(roms_import_test PRIVATE "${CMAKE_SOURCE_DIR}/core/src")
+add_test(NAME roms_import COMMAND roms_import_test)
+
 # Where a dropped file goes, and whether a real cartridge runs once there.
 add_executable(media_test media_test.c)
 target_link_libraries(media_test coleco_session)
@@ -107,7 +115,7 @@ endif() # TARGET coleco_session
 if(WIN32)
   # cart_test is conditional on the ROMs being available, hence the guard.
   foreach(_t no_sdl_link_test cart_test fujitrace_test boot_smoke input_test
-             session_test bindings_test media_test hostport_test external_test debug_test dasm_test
+             session_test bindings_test roms_import_test media_test hostport_test external_test debug_test dasm_test
              vdp_decode_test gamepad_map_test gamepad_probe)
     if(TARGET ${_t})
       target_link_options(${_t} PRIVATE -static -static-libgcc -static-libstdc++)

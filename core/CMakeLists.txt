@@ -190,6 +190,7 @@ add_library(coleco_session STATIC
   src/settings.c
   src/paths.c
   src/roms.c
+  src/zipread.c
   src/bindings.c
   src/input_map.c
   src/media.c

@@ -92,6 +92,17 @@ int colecosession_import_media(colecosession *s, const char *src_path,
         return -1;
     }
 
+    /* A BIOS dump is a ROM, not a cartridge, though it is a .rom or .bin. */
+    if (colecosession_media_is_rom(src_path)) {
+        char msg[512];
+        if (colecosession_rom_import(s, src_path, msg, sizeof msg) < 1) {
+            session_set_error(s, "%s", msg);
+            return -1;
+        }
+        snprintf(dest_out, (size_t)dest_sz, "%s/OS7.rom", s->roms_dir);
+        return 0;
+    }
+
     if (ext_is(src_path, cart_exts)) {
         dir = s->carts_dir;
     } else if (ext_is(src_path, disk_exts)) {
@@ -127,5 +138,5 @@ int colecosession_import_media(colecosession *s, const char *src_path,
 
 int colecosession_media_is_cartridge(const char *path)
 {
-    return path ? ext_is(path, cart_exts) : 0;
+    return path ? ext_is(path, cart_exts) && !colecosession_media_is_rom(path) : 0;
 }

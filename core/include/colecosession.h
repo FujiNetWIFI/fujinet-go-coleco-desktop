@@ -277,11 +277,26 @@ int         colecosession_cart_mailbox_live(const colecosession *s);
  * The BIOS is not redistributed, so a fresh install has none and the app has
  * to say so rather than showing a black screen. */
 int  colecosession_bios_available(const colecosession *s);
-/* Copies src into the ROM directory as OS7.rom after checking its size and
- * CRC32. Returns 0, or -1 with the error set. */
+/* Import BIOS, the way the Odyssey 2 / MS-DOS desktops do it: `path` is a
+ * file, a zip (MAME's coleco.zip works) or a folder (searched 8 levels deep,
+ * zips inside it too). The image is recognised by size and CRC-32 whatever it
+ * is called and stored as OS7.rom. Returns how many items it imported (0 =
+ * recognised nothing), or -1 with the error in `msg` and last_error; `msg`
+ * always says what happened. A file of the BIOS's size with an unknown CRC is
+ * taken only when it is the one file handed over, and the message warns about
+ * it. Takes effect at the next power cycle. */
+int  colecosession_rom_import(colecosession *s, const char *path, char *msg,
+                              int msgsz);
+/* 1 if `path` is a ROM this app imports (a dropped file or zip), by size and
+ * known CRC (a zip: by any of its entries). Never guesses. */
+int  colecosession_media_is_rom(const char *path);
+/* A single file. Returns 0 imported, 1 imported but the CRC is not one I
+ * know (the warning is in last_error), -1 not imported (reason in
+ * last_error). */
 int  colecosession_import_bios(colecosession *s, const char *src_path);
 
-/* Routes a dropped file: .rom/.col/.bin to the cartridge directory (the
+/* Routes a dropped file: a BIOS dump (colecosession_media_is_rom) to the ROM
+ * directory, .rom/.col/.bin to the cartridge directory (the
  * returned path is usable as cart_path), disk images to the FujiNet SD
  * folder. Returns 0 and writes the destination into dest_out. */
 int  colecosession_import_media(colecosession *s, const char *src_path,

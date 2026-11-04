@@ -67,6 +67,8 @@ struct colecosession {
 void settings_init(struct colecosession *s);
 void settings_free_all(struct colecosession *s);
 
+/* mkdir -p; 0 on success or if it exists. */
+int paths_mkdir_p(const char *path);
 int paths_init(struct colecosession *s, const char *config_dir,
                const char *data_dir);
 /* Locate libfujinet and provision the runtime tree (fnconfig.ini + data/ +

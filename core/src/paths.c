@@ -64,7 +64,7 @@ static int make_dir(const char *path)
 #endif
 }
 
-static int mkdir_p(const char *path)
+int paths_mkdir_p(const char *path)
 {
     char buf[COLECO_PATH_MAX];
     char *p;
@@ -140,20 +140,20 @@ int paths_init(struct colecosession *s, const char *config_dir,
     snprintf(s->webui_url, sizeof s->webui_url, "http://127.0.0.1:%d/",
              COLECOSESSION_WEBUI_PORT);
 
-    if (mkdir_p(s->config_dir) != 0) {
+    if (paths_mkdir_p(s->config_dir) != 0) {
         session_set_error(s, "cannot create config dir %s", s->config_dir);
         return -1;
     }
-    if (mkdir_p(s->data_dir) != 0) {
+    if (paths_mkdir_p(s->data_dir) != 0) {
         session_set_error(s, "cannot create data dir %s", s->data_dir);
         return -1;
     }
     snprintf(s->carts_dir, sizeof s->carts_dir, "%s/carts", s->data_dir);
-    if (mkdir_p(s->carts_dir) != 0) {
+    if (paths_mkdir_p(s->carts_dir) != 0) {
         session_set_error(s, "cannot create cartridge dir %s", s->carts_dir);
         return -1;
     }
-    if (mkdir_p(s->roms_dir) != 0) {
+    if (paths_mkdir_p(s->roms_dir) != 0) {
         session_set_error(s, "cannot create ROM dir %s", s->roms_dir);
         return -1;
     }
@@ -187,7 +187,7 @@ static int copy_file(const char *src, const char *dst)
 
 static int copy_tree(const char *src, const char *dst)
 {
-    if (mkdir_p(dst) != 0) return -1;
+    if (paths_mkdir_p(dst) != 0) return -1;
     DIR *d = opendir(src);
     if (!d) return -1;
     struct dirent *e;
@@ -296,7 +296,7 @@ int paths_provision_fujinet(struct colecosession *s)
     /* First run: copy fnconfig.ini + data/ + SD/ into the user's tree. */
     if (*asset_src && !is_file(s->fujinet_config)) {
         char src[COLECO_PATH_MAX];
-        mkdir_p(s->fujinet_root);
+        paths_mkdir_p(s->fujinet_root);
         snprintf(src, sizeof src, "%s/fnconfig.ini", asset_src);
         copy_file(src, s->fujinet_config);
         snprintf(src, sizeof src, "%s/data", asset_src);
