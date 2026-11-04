@@ -34,6 +34,7 @@ static void on_activate(AdwApplication *app, gpointer user_data)
         return;
     }
 
+    coleco_css_install();
     win = coleco_window_new(app, g_session);
 
     colecosession_default_opts(g_session, &opts);

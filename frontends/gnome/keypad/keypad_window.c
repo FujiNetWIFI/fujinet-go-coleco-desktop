@@ -79,11 +79,11 @@ static void set_map_state(int state)
     g_map_state = state;
     if (state == -2) {
         gtk_button_set_label(GTK_BUTTON(g_map_button), "Map");
-        gtk_widget_remove_css_class(g_map_button, "suggested-action");
+        gtk_widget_remove_css_class(g_map_button, "coleco-accent");
         gtk_label_set_text(GTK_LABEL(g_map_hint), "");
     } else if (state == -1) {
         gtk_button_set_label(GTK_BUTTON(g_map_button), "Cancel");
-        gtk_widget_add_css_class(g_map_button, "suggested-action");
+        gtk_widget_add_css_class(g_map_button, "coleco-accent");
         gtk_label_set_text(GTK_LABEL(g_map_hint), "Click a control to remap");
     } else {
         char msg[96];
@@ -166,10 +166,10 @@ static void refresh_labels(void)
         if (g_map_state != -2) {
             const char *k = coleco_binding_key_name(t);
             gtk_button_set_label(GTK_BUTTON(b), *k ? k : "\xe2\x80\x94");
-            if (t == g_map_state) gtk_widget_add_css_class(b, "suggested-action");
-            else gtk_widget_remove_css_class(b, "suggested-action");
+            if (t == g_map_state) gtk_widget_add_css_class(b, "coleco-accent");
+            else gtk_widget_remove_css_class(b, "coleco-accent");
         } else {
-            gtk_widget_remove_css_class(b, "suggested-action");
+            gtk_widget_remove_css_class(b, "coleco-accent");
             gtk_button_set_label(GTK_BUTTON(b),
                                  g_object_get_data(G_OBJECT(b), "face"));
         }

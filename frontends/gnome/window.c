@@ -35,6 +35,49 @@ struct _ColecoWindow {
 
 G_DEFINE_FINAL_TYPE(ColecoWindow, coleco_window, ADW_TYPE_APPLICATION_WINDOW)
 
+/* ---- the accent CSS -----------------------------------------------------
+ * One display-wide provider, installed at startup so every window gets it:
+ * highlighted buttons in the icon's colour (COLECOSESSION_ACCENT_RGB, the
+ * TMS9918's dark blue) with WHITE text (the accent is dark), in light and
+ * dark. */
+
+void coleco_css_install(void)
+{
+    static gboolean done;
+    GtkCssProvider *provider;
+    g_autofree char *css = NULL;
+    GdkDisplay *display = gdk_display_get_default();
+    unsigned rgb = COLECOSESSION_ACCENT_RGB, hover = 0;
+    int shift;
+
+    if (done || !display)
+        return;
+    done = TRUE;
+    /* a little lighter under the pointer */
+    for (shift = 16; shift >= 0; shift -= 8) {
+        unsigned c = (rgb >> shift) & 0xFF;
+        hover |= (c + (255 - c) * 18 / 100) << shift;
+    }
+    css = g_strdup_printf(
+        "button.coleco-accent {\n"
+        "  background-image: none; background-color: #%06X; color: #FFFFFF;\n"
+        "}\n"
+        "button.coleco-accent:hover {\n"
+        "  background-image: none; background-color: #%06X; color: #FFFFFF;\n"
+        "}\n",
+        rgb, hover);
+    provider = gtk_css_provider_new();
+#if GTK_CHECK_VERSION(4, 12, 0)
+    gtk_css_provider_load_from_string(provider, css);
+#else
+    gtk_css_provider_load_from_data(provider, css, -1);
+#endif
+    gtk_style_context_add_provider_for_display(
+        display, GTK_STYLE_PROVIDER(provider),
+        GTK_STYLE_PROVIDER_PRIORITY_APPLICATION);
+    g_object_unref(provider);
+}
+
 static void push_toast(ColecoWindow *self, const char *text)
 {
     adw_toast_overlay_add_toast(ADW_TOAST_OVERLAY(self->toast_overlay),

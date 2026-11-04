@@ -12,6 +12,12 @@
 G_DECLARE_FINAL_TYPE(ColecoWindow, coleco_window, COLECO, WINDOW,
                      AdwApplicationWindow)
 
+/* Installs the display-wide accent CSS once (COLECOSESSION_ACCENT_RGB, the
+ * icon's colour, with white text): the class "coleco-accent" marks a button
+ * as highlighted -- the keypad's Map and remap targets, the primary button in
+ * Preferences. Call before the first window is made. */
+void coleco_css_install(void);
+
 GtkWidget *coleco_window_new(AdwApplication *app, colecosession *session);
 
 /* Import BIOS: a chooser for files (several, zips allowed) or one folder, then

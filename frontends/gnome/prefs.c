@@ -215,7 +215,7 @@ static AdwPreferencesPage *build_roms_page(PrefsState *state)
     box = gtk_box_new(GTK_ORIENTATION_VERTICAL, 6);
     files = gtk_button_new_with_label("Import BIOS\xe2\x80\xa6");
     folder = gtk_button_new_with_label("Import from a Folder\xe2\x80\xa6");
-    gtk_widget_add_css_class(files, "suggested-action");
+    gtk_widget_add_css_class(files, "coleco-accent");
     g_object_set_data(G_OBJECT(folder), "coleco-folder", GINT_TO_POINTER(1));
     g_signal_connect(files, "clicked", G_CALLBACK(on_import_clicked), state);
     g_signal_connect(folder, "clicked", G_CALLBACK(on_import_clicked), state);

@@ -17,6 +17,7 @@
 #include <QMouseEvent>
 #include <QVBoxLayout>
 
+#include "Accent.h"
 #include "KeyForward.h"
 
 PadButton::PadButton(const QString &face, int target, QWidget *parent)
@@ -89,6 +90,9 @@ KeypadWindow::KeypadWindow(colecosession *session, QWidget *parent)
 
     auto *maprow = new QHBoxLayout;
     m_mapButton = new QPushButton(QStringLiteral("Map"));
+    /* The accent box differs from the native button's: a fixed width keeps
+     * the row from jumping when "Map" becomes "Cancel". */
+    m_mapButton->setMinimumWidth(m_mapButton->sizeHint().width() + 24);
     connect(m_mapButton, &QPushButton::clicked, this,
             [this] { setMapState(m_mapState == -2 ? -1 : -2); });
     auto *defaults = new QPushButton(QStringLiteral("Defaults"));
@@ -177,6 +181,7 @@ void KeypadWindow::onReleased(int target)
 void KeypadWindow::setMapState(int state)
 {
     m_mapState = state;
+    colecoSetAccent(m_mapButton, state != -2);
     if (state == -2) {
         m_mapButton->setText(QStringLiteral("Map"));
         m_hint->clear();
@@ -196,8 +201,10 @@ void KeypadWindow::refreshLabels()
         if (m_mapState != -2) {
             const char *k = coleco_binding_key_name(b->target());
             b->setText(*k ? QString::fromUtf8(k) : QStringLiteral("—"));
+            colecoSetAccent(b, b->target() == m_mapState);
         } else {
             b->setText(b->face());
+            colecoSetAccent(b, false);
         }
     }
 }

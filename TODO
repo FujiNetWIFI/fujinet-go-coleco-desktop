@@ -65,7 +65,7 @@ Done (this pass) -- M0
       fujinet-go-adam-desktop has, and goes away when adamcore ships an
       adamcore-sources.cmake (M1 step 7).
   [x] tools/icons/make-icons.py + rendered hicolor set, .icns and app.ico.
-      Background #8C9720 -- the complement of the ADAM app's #8D84E5: hue
+      Background #5455ED (2026-11-04), the TMS9918 dark blue paired with the ADAM app's light blue; was #8C9720 -- the complement of #8D84E5: hue
       65.6 deg (exactly 180 opposite), same saturation, and HSL lightness
       chosen so RELATIVE LUMINANCE matches ADAM's 0.278. That last step is the
       point: all six siblings composite byte-identical foreground artwork, and

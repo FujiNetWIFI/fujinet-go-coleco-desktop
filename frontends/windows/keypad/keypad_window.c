@@ -26,6 +26,7 @@
 #include <stdio.h>
 #include <string.h>
 
+#include "../accent_button.h"
 #include "../key_forward.h"
 
 #define PAD_CLASS "FujiNetGoColecoKeypad"
@@ -138,6 +139,17 @@ static int hit(int x, int y)
     return -1;
 }
 
+/* A push button: the stock look, or (lit) the accent fill and frame. */
+static void draw_button(HDC dc, RECT *rc, int lit)
+{
+    if (!lit) {
+        DrawFrameControl(dc, rc, DFC_BUTTON, DFCS_BUTTONPUSH);
+        return;
+    }
+    FillRect(dc, rc, coleco_accent_brush());
+    FrameRect(dc, rc, (HBRUSH)GetStockObject(GRAY_BRUSH));
+}
+
 static void paint_panel(HDC dc)
 {
     HFONT font = (HFONT)GetStockObject(DEFAULT_GUI_FONT);
@@ -161,23 +173,28 @@ static void paint_panel(HDC dc)
     }
 
     for (i = 0; i < g_nbtn; i++) {
-        UINT state = DFCS_BUTTONPUSH;
         char label[24];
-        if (i == g_held) state |= DFCS_PUSHED;
-        DrawFrameControl(dc, &g_btn[i].rc, DFC_BUTTON, state);
+        /* held, or the remap target: the accent with white text */
+        const int lit = i == g_held || (g_map_state >= 0 && g_btn[i].target == g_map_state);
+        draw_button(dc, &g_btn[i].rc, lit);
         if (g_map_state != -2) {
             const char *k = coleco_binding_key_name(g_btn[i].target);
             snprintf(label, sizeof label, "%s", *k ? k : "-");
         } else {
             snprintf(label, sizeof label, "%s", g_btn[i].face);
         }
+        if (lit) SetTextColor(dc, COLECO_ACCENT_TEXT);
         DrawText(dc, label, -1, &g_btn[i].rc,
                  DT_CENTER | DT_VCENTER | DT_SINGLELINE);
+        if (lit) SetTextColor(dc, GetSysColor(COLOR_BTNTEXT));
     }
 
-    DrawFrameControl(dc, &g_map_rc, DFC_BUTTON, DFCS_BUTTONPUSH);
+    /* Map is lit while a remap is under way, and reads "Cancel" */
+    draw_button(dc, &g_map_rc, g_map_state != -2);
+    if (g_map_state != -2) SetTextColor(dc, COLECO_ACCENT_TEXT);
     DrawText(dc, g_map_state == -2 ? "Map" : "Cancel", -1, &g_map_rc,
              DT_CENTER | DT_VCENTER | DT_SINGLELINE);
+    if (g_map_state != -2) SetTextColor(dc, GetSysColor(COLOR_BTNTEXT));
     DrawFrameControl(dc, &g_defaults_rc, DFC_BUTTON, DFCS_BUTTONPUSH);
     DrawText(dc, "Defaults", -1, &g_defaults_rc,
              DT_CENTER | DT_VCENTER | DT_SINGLELINE);

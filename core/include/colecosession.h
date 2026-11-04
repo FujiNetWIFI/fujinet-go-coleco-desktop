@@ -37,6 +37,11 @@ extern "C" {
 #define COLECOSESSION_BOIP_PORT  11502
 #define COLECOSESSION_WEBUI_PORT 11503
 
+/* The app's accent colour (the launcher icon's background): the TMS9918's
+ * "dark blue", the pair of the ADAM app's light blue. Held and remap-target
+ * buttons; text on it is white. */
+#define COLECOSESSION_ACCENT_RGB 0x5455ED
+
 /* The ColecoVision BIOS. One image, unlike the ADAM's three, and unlike the
  * ADAM app this one is not redistributed -- see COMPLIANCE.md. */
 #define COLECOSESSION_BIOS_SIZE 0x2000

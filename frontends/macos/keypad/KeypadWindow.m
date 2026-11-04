@@ -20,6 +20,7 @@
 
 #import "KeypadWindow.h"
 
+#import "../AccentColor.h"
 #import "../ColecoKeyForward.h"
 
 /* -2 idle, -1 armed and waiting for a target, >= 0 waiting for a key. */
@@ -51,12 +52,15 @@ static coleco_input_state g_keys;
     colecosession_press(g_session, self.padTarget / COLECO_ACT_PER_PORT,
                         self.padTarget % COLECO_ACT_PER_PORT, 1);
     [self highlight:YES];
+    COLECOSetButtonAccent(self, YES);
 }
 
 - (void)mouseUp:(NSEvent *)e
 {
     (void)e;
     [self highlight:NO];
+    /* the remap target keeps its accent while it waits for a key */
+    COLECOSetButtonAccent(self, g_mapState >= 0 && g_mapState == self.padTarget);
     if (g_mapState != -2) return;
     if (self.padTarget >= COLECO_TARGET_SYSACT(0)) {
         /* System actions fire on release, like a real button: pressing and
@@ -230,6 +234,7 @@ static const int kOrder[12] = { 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 0, 11 };
 - (void)refresh
 {
     [_mapButton setTitle:(g_mapState == -2 ? @"Map" : @"Cancel")];
+    COLECOSetButtonAccent(_mapButton, g_mapState != -2);
     if (g_mapState == -2)
         [_hint setStringValue:@""];
     else if (g_mapState == -1)
@@ -245,6 +250,7 @@ static const int kOrder[12] = { 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 0, 11 };
         } else {
             [b setTitle:b.face];
         }
+        COLECOSetButtonAccent(b, g_mapState >= 0 && b.padTarget == g_mapState);
     }
 }
 
