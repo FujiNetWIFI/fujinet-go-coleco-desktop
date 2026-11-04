@@ -54,7 +54,14 @@
     <!-- The CURRENT release templates its version from @PROJECT_VERSION@, so
          it cannot disagree with the tree; past releases are literal. The
          release job checks that this first entry is still a template. -->
-    <release version="@PROJECT_VERSION@" date="2026-11-01">
+    <release version="@PROJECT_VERSION@" date="2026-11-04">
+      <description>
+        <p>
+          The CONFIG program the cartridge starts in has been rebuilt: it has a windowed look, a COMMAND menu on the * key, a progress bar with byte counts (for example 13K of 32K) while a game loads, and long file names scroll. A game booted from CONFIG now starts with its video registers cleared.
+        </p>
+      </description>
+    </release>
+    <release version="0.6.0" date="2026-11-01">
       <description>
         <p>
           Lower CPU use: the picture is drawn only when the emulator has a new frame, and the display stops updating while the window is hidden. The built-in FujiNet wakes about a tenth as often when nothing is happening. Needs GTK 4.16 or newer.
