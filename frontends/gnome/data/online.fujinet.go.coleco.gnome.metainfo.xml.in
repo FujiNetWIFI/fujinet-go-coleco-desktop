@@ -57,6 +57,16 @@
     <release version="@PROJECT_VERSION@" date="2026-11-04">
       <description>
         <p>
+          Import BIOS now takes a file, several files, a folder or a zip (MAME's coleco.zip works), the same as the Odyssey 2 and MS-DOS apps: it recognises the ColecoVision BIOS whatever the file is called and saves it as OS7.rom. A new Import BIOS from a Folder item, a ROMs page in Preferences, and a prompt to import the BIOS when the console cannot start without it. A BIOS dropped on the window is imported instead of being treated as a cartridge.
+        </p>
+        <p>
+          The icon and the highlight colour are now the TMS9918's dark blue, the pair of the ADAM app's light blue. The keypad's Map button and the key being remapped use it.
+        </p>
+      </description>
+    </release>
+    <release version="0.7.0" date="2026-11-04">
+      <description>
+        <p>
           The CONFIG program the cartridge starts in has been rebuilt: it has a windowed look, a COMMAND menu on the * key, a progress bar with byte counts (for example 13K of 32K) while a game loads, and long file names scroll. A game booted from CONFIG now starts with its video registers cleared.
         </p>
       </description>
