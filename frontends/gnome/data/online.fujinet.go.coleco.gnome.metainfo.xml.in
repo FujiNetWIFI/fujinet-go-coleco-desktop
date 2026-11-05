@@ -57,6 +57,13 @@
     <release version="@PROJECT_VERSION@" date="2026-11-04">
       <description>
         <p>
+          New: an About window in every version of the app (Help menu on KDE and Windows, the main menu on GNOME, the app menu on macOS), showing the version, copyright, licence and the fujinet.online link.
+        </p>
+      </description>
+    </release>
+    <release version="0.8.1" date="2026-11-04">
+      <description>
+        <p>
           M.U.L.E. (and any other game using the FujiNet cartridge's new paged layout, APPBANK) now loads instead of failing with boot error 03, "no mapper". The built-in FujiNet cartridge follows the current firmware.
         </p>
       </description>

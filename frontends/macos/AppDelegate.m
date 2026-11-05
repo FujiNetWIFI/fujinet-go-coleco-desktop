@@ -199,9 +199,9 @@
 
     NSMenuItem *appItem = [[NSMenuItem alloc] init];
     NSMenu *appMenu = [[NSMenu alloc] init];
-    [appMenu addItemWithTitle:@"About FujiNet Go ColecoVision"
-                       action:@selector(orderFrontStandardAboutPanel:)
-                keyEquivalent:@""];
+    [[appMenu addItemWithTitle:@"About FujiNet Go ColecoVision"
+                        action:@selector(showAbout:)
+                 keyEquivalent:@""] setTarget:self];
     [appMenu addItem:[NSMenuItem separatorItem]];
     /* Command-comma, where every Mac application puts its settings. */
     [[appMenu addItemWithTitle:@"Settings…" action:@selector(showSettings:)
@@ -347,6 +347,21 @@
     field.textColor = NSColor.controlTextColor;
     colecosession_set_str(_session, "fujinet_external_addr", text.UTF8String);
     _sessionDirty = YES;
+}
+
+- (void)showAbout:(id)sender
+{
+    (void)sender;
+    NSMutableAttributedString *credits = [[NSMutableAttributedString alloc]
+        initWithString:@"Self-contained ColecoVision with built-in FujiNet.\n"
+                        "GPL-3.0-or-later\n"];
+    NSAttributedString *link = [[NSAttributedString alloc]
+        initWithString:@"fujinet.online"
+            attributes:@{ NSLinkAttributeName :
+                              [NSURL URLWithString:@"https://fujinet.online/"] }];
+    [credits appendAttributedString:link];
+    [NSApp orderFrontStandardAboutPanelWithOptions:
+        @{ NSAboutPanelOptionCredits : credits }];
 }
 
 - (void)showSettings:(id)sender

@@ -179,6 +179,7 @@ static void build_menu(HWND hwnd)
     HMENU machine = CreatePopupMenu();
     HMENU view = CreatePopupMenu();
     HMENU fuji = CreatePopupMenu();
+    HMENU help = CreatePopupMenu();
 
     AppendMenu(machine, MF_STRING, IDM_OPEN, "&Open Cartridge...");
     AppendMenu(machine, MF_STRING, IDM_EJECT, "&Eject Cartridge");
@@ -206,6 +207,8 @@ static void build_menu(HWND hwnd)
     AppendMenu(bar, MF_POPUP, (UINT_PTR)machine, "&Machine");
     AppendMenu(bar, MF_POPUP, (UINT_PTR)view, "&View");
     AppendMenu(bar, MF_POPUP, (UINT_PTR)fuji, "&FujiNet");
+    AppendMenu(help, MF_STRING, IDM_ABOUT, "&About FujiNet Go ColecoVision");
+    AppendMenu(bar, MF_POPUP, (UINT_PTR)help, "&Help");
     SetMenu(hwnd, bar);
 }
 
@@ -833,6 +836,24 @@ static LRESULT CALLBACK wndproc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp)
                           MF_BYCOMMAND | (g_smooth ? MF_CHECKED : MF_UNCHECKED));
             colecosession_set_int(g_session, "smooth", g_smooth);
             InvalidateRect(hwnd, NULL, TRUE);
+            return 0;
+        }
+        case IDM_ABOUT: {
+            /* MB_USERICON with the app's own icon, not a stock Windows one. */
+            MSGBOXPARAMSA mb;
+            memset(&mb, 0, sizeof(mb));
+            mb.cbSize = sizeof(mb);
+            mb.hwndOwner = hwnd;
+            mb.hInstance = (HINSTANCE)GetWindowLongPtr(hwnd, GWLP_HINSTANCE);
+            mb.lpszText = "FujiNet Go ColecoVision " COLECO_VERSION_STRING "\n"
+                          "Self-contained ColecoVision with built-in FujiNet.\n"
+                          "Copyright (C) 2026 Thomas Cherryhomes\n"
+                          "GPL-3.0-or-later\n\n"
+                          "https://fujinet.online/";
+            mb.lpszCaption = "About FujiNet Go ColecoVision";
+            mb.dwStyle = MB_OK | MB_USERICON;
+            mb.lpszIcon = MAKEINTRESOURCEA(IDI_APPICON);
+            MessageBoxIndirectA(&mb);
             return 0;
         }
         case IDM_SETTINGS:

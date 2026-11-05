@@ -17,6 +17,7 @@
 #define IDM_SMOOTH         1012
 #define IDM_FUJINET_CONFIG 1020
 #define IDM_SETTINGS       1030
+#define IDM_ABOUT          1040
 
 /* Controls inside the settings window. */
 #define IDC_SET_SGM        2001

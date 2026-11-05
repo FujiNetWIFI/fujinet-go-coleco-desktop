@@ -558,6 +558,24 @@ static void action_fujinet_log(GSimpleAction *a, GVariant *p,
     coleco_fujilog_show(GTK_WINDOW(self), self->session);
 }
 
+static void action_about(GSimpleAction *a, GVariant *p, gpointer user_data)
+{
+    ColecoWindow *self = user_data;
+    (void)a;
+    (void)p;
+    adw_show_about_dialog(
+        GTK_WIDGET(self),
+        "application-name", "FujiNet Go ColecoVision",
+        "application-icon", "online.fujinet.go.coleco.gnome",
+        "developer-name", "Thomas Cherryhomes",
+        "version", COLECO_VERSION_STRING,
+        "copyright", "\xc2\xa9 2026 Thomas Cherryhomes",
+        "license-type", GTK_LICENSE_GPL_3_0,
+        "comments", "Self-contained ColecoVision with built-in FujiNet",
+        "website", "https://fujinet.online/",
+        NULL);
+}
+
 static void action_prefs(GSimpleAction *a, GVariant *p, gpointer user_data)
 {
     ColecoWindow *self = user_data;
@@ -598,6 +616,7 @@ static const GActionEntry win_actions[] = {
     { "fujinet-config", action_fujinet_config, NULL, NULL, NULL, { 0 } },
     { "fujinet-log", action_fujinet_log, NULL, NULL, NULL, { 0 } },
     { "prefs", action_prefs, NULL, NULL, NULL, { 0 } },
+    { "about", action_about, NULL, NULL, NULL, { 0 } },
     { "tv-aspect", action_aspect, NULL, "true", NULL, { 0 } },
     { "smooth", action_smooth, NULL, "false", NULL, { 0 } },
 };
@@ -631,6 +650,7 @@ static GMenu *build_menu(void)
     g_menu_append_section(menu, NULL, G_MENU_MODEL(fuji));
 
     g_menu_append(app, "_Preferences", "win.prefs");
+    g_menu_append(app, "_About FujiNet Go ColecoVision", "win.about");
     g_menu_append_section(menu, NULL, G_MENU_MODEL(app));
 
     g_object_unref(machine);

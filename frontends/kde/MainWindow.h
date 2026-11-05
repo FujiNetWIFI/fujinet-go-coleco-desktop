@@ -45,6 +45,7 @@ private:
     void useSoftwareDisplay();
     void applyPicture();
     void showSettings();
+    void showAbout();
     void restartSession();
     void explainRefusal(const QString &title, const QString &why,
                         std::function<void()> retry);

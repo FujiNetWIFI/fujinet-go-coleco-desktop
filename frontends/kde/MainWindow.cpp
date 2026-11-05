@@ -154,6 +154,21 @@ void MainWindow::buildMenus()
         }
         fujinet_log_show(this, m_session);
     });
+
+    QMenu *help = menuBar()->addMenu(QStringLiteral("&Help"));
+    help->addAction(QStringLiteral("&About FujiNet Go ColecoVision"), this,
+                    &MainWindow::showAbout);
+}
+
+void MainWindow::showAbout()
+{
+    QMessageBox::about(
+        this, QStringLiteral("About FujiNet Go ColecoVision"),
+        QStringLiteral(
+            "<b>FujiNet Go ColecoVision</b> " COLECO_VERSION_STRING "<br>"
+            "Self-contained ColecoVision with built-in FujiNet.<br>"
+            "Copyright \u00a9 2026 Thomas Cherryhomes \u2014 GPL-3.0-or-later<br>"
+            "<a href=\"https://fujinet.online/\">fujinet.online</a>"));
 }
 
 void MainWindow::showSettings()
