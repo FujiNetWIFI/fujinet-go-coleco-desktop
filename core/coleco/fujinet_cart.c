@@ -98,6 +98,13 @@ static void c_poke(unsigned offset, uint8_t value)
     coleco_cart *c = s_cart;
     if (!c) return;
     c->window[offset & (COLMAP_WINDOW - 1)] = value;
+    /* An APPBANK client's home window is its image's first 32K, live or
+     * staged: publishes paint it there too, as in the MAME device. */
+    if (c->serve.kind == COLMAP_APPBANK && c->image_size >= COLMAP_WINDOW)
+        c->image[offset & (COLMAP_WINDOW - 1)] = value;
+    if (c->have_staged && c->staged_claims &&
+        c->staged_plan.kind == COLMAP_APPBANK && c->staged_image)
+        c->staged_image[offset & (COLMAP_WINDOW - 1)] = value;
     /* A staged image that claims the mailbox must receive the same publishes,
      * or the client would boot into stale status pages. One that does not
      * claim it keeps its bytes pristine -- and the mailbox stays live on the
@@ -431,6 +438,8 @@ static uint8_t cart_read(void *ud, uint16_t off, int commit)
     if (commit && off >= FN_H_REGSEL) {
         if (off == FN_H_REGSEL + FN_HOT_SWAP) {
             if (c->swap_armed) do_swap(c);
+        } else if (colmap_bank_select(&c->serve, off)) {
+            /* An APPBANK page select; the next read sees the page. */
         } else if (c->mailbox_live) {
             fujimail_read_hotspot(off);
         }

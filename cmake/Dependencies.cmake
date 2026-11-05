@@ -42,19 +42,13 @@ find_package(Git QUIET)
 set(ADAMCORE_COMMIT "611bfe4d0a6ac76166588ca674ba2d46d10d6bf4")
 set(ADAMCORE_URL "https://github.com/tschak909/adamcore")
 
-# fujinet-firmware, fork branch coleco-asm-config (61193e3c8): master 319d29b37
-# plus the two commits of fujinet-firmware PR #2288 -- the status page's boot
-# byte counters (FN_R_BOOT_GOT0/TOT0) and the baked assembly CONFIG
-# (fujinet-config #373, with its progress window). TEMPORARY: the pin returns
-# to master when #2288 merges. The commits live only on the fork, hence the
-# tschak909 URL. Master already carries the BoIP idle-wait fix (#2247), the
-# shared pico/common sources and the five-mapper colmap.c. Recorded in three
-# places -- here and in both flatpak manifests (build-aux/flatpak/*.yml). The
-# pinned commit has moved on the server before in a sibling repo, so treat a
-# failed fetch of this exact hash as "the branch was rebased/merged", not as a
-# network fault.
-set(FUJINET_COMMIT "61193e3c85efc85b44487e11a7b75aa16d2acbf2")
-set(FUJINET_URL "https://github.com/tschak909/fujinet-firmware")
+# fujinet-firmware, master (643ed9e9b): carries the baked assembly CONFIG
+# (#2288), the BoIP idle-wait fix (#2247) and APPBANK (#2286), the mapper that
+# serves M.U.L.E.'s 56K image (32K client plus 8K pages); without it
+# colmap_plan answers "no mapper fits" (boot error 03). Recorded in three
+# places -- here and in both flatpak manifests (build-aux/flatpak/*.yml).
+set(FUJINET_COMMIT "643ed9e9bea588c464d24ed360c7ede5d741d13b")
+set(FUJINET_URL "https://github.com/FujiNetWIFI/fujinet-firmware")
 
 # coleco_provide_dependency(NAME <n> PATH <p> SENTINEL <file> OVERRIDE <VAR>
 #                           RESULT <out>

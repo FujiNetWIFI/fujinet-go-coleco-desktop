@@ -64,9 +64,9 @@ cmake --build build
 Add `-DADAMCORE_RESTAGE=ON` / `-DFUJI_RESTAGE=ON` to pick up uncommitted edits
 in those checkouts. `-DFRONTEND=none` builds just the core and its tests.
 
-> The `fujinet-firmware` pin is fork branch **`coleco-asm-config`**: master
-> plus the assembly CONFIG (fujinet-firmware #2288), until that merges. The
-> configure fails with a message if the pin lacks `pico/coleco`'s baked CONFIG.
+> The `fujinet-firmware` pin is master (643ed9e9b), which carries the baked
+> assembly CONFIG and APPBANK (M.U.L.E.'s 56K image). The configure fails with
+> a message if the pin lacks `pico/coleco`'s baked CONFIG.
 
 ### The BIOS
 

@@ -123,8 +123,8 @@ modules:
       # coleco_provide_dependency() skips its own fetch once it finds build.sh
       # (the SENTINEL) already here.
       - type: git
-        url: https://github.com/tschak909/fujinet-firmware
-        commit: 61193e3c85efc85b44487e11a7b75aa16d2acbf2
+        url: https://github.com/FujiNetWIFI/fujinet-firmware
+        commit: 643ed9e9bea588c464d24ed360c7ede5d741d13b
         dest: third_party/fujinet-firmware
       # Same reasoning: the sandboxed build step has no network access, but
       # tools/fujinet/build-fujinet-desktop.sh needs mbedTLS 3.x and

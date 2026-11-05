@@ -57,6 +57,13 @@
     <release version="@PROJECT_VERSION@" date="2026-11-04">
       <description>
         <p>
+          M.U.L.E. (and any other game using the FujiNet cartridge's new paged layout, APPBANK) now loads instead of failing with boot error 03, "no mapper". The built-in FujiNet cartridge follows the current firmware.
+        </p>
+      </description>
+    </release>
+    <release version="0.8.0" date="2026-11-04">
+      <description>
+        <p>
           Import BIOS now takes a file, several files, a folder or a zip (MAME's coleco.zip works), the same as the Odyssey 2 and MS-DOS apps: it recognises the ColecoVision BIOS whatever the file is called and saves it as OS7.rom. A new Import BIOS from a Folder item, a ROMs page in Preferences, and a prompt to import the BIOS when the console cannot start without it. A BIOS dropped on the window is imported instead of being treated as a cartridge.
         </p>
         <p>
