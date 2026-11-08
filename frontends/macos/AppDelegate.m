@@ -268,7 +268,8 @@
     NSMenuItem *helpItem = [[NSMenuItem alloc] init];
     NSMenu *help = [[NSMenu alloc] initWithTitle:@"Help"];
     /* openHelp:, not showHelp: (AppKit's: "Help isn't available") */
-    [self item:help title:@"FujiNet Go ColecoVision Help" action:@selector(openHelp:) key:@"?"];
+    [[help addItemWithTitle:@"FujiNet Go ColecoVision Help" action:@selector(openHelp:)
+              keyEquivalent:@"?"] setTarget:self];
     [helpItem setSubmenu:help];
     [bar addItem:helpItem];
 
