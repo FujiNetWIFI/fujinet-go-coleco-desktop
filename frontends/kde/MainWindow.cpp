@@ -30,12 +30,14 @@
 #include "SoftDisplayWidget.h"
 #include "KeyForward.h"
 #include "KeypadWindow.h"
+#include "help/HelpWindow.h"
 #include "debugger/DebuggerWindow.h"
 
 MainWindow::MainWindow(colecosession *session, QWidget *parent)
     : QMainWindow(parent), m_session(session)
 {
     setWindowTitle(QStringLiteral("FujiNet Go ColecoVision"));
+    setProperty("colecoHelpContext", QStringLiteral("main"));
     /* 256x212 at 3x, in 4:3 -- big enough that the BIOS text is readable
      * without resizing on every launch. */
     resize(848, 636);
@@ -156,6 +158,18 @@ void MainWindow::buildMenus()
     });
 
     QMenu *help = menuBar()->addMenu(QStringLiteral("&Help"));
+    {
+        /* works from every window of the app (the Controllers window and the
+         * Debugger have the keyboard too) */
+        QAction *helpAct = help->addAction(QStringLiteral("FujiNet Go ColecoVision &Help"));
+        helpAct->setShortcut(QKeySequence(Qt::CTRL | Qt::SHIFT | Qt::Key_H));
+        helpAct->setShortcutContext(Qt::ApplicationShortcut);
+        addAction(helpAct);
+        connect(helpAct, &QAction::triggered, this, [this] {
+            colecoHelpFor(QApplication::activeWindow() ? QApplication::activeWindow() : this);
+        });
+    }
+    help->addSeparator();
     help->addAction(QStringLiteral("&About FujiNet Go ColecoVision"), this,
                     &MainWindow::showAbout);
 }
@@ -200,7 +214,11 @@ void MainWindow::explainRefusal(const QString &title, const QString &why,
     QPushButton *import = box->addButton(QStringLiteral("Import BIOS..."),
                                          QMessageBox::AcceptRole);
     box->addButton(QStringLiteral("Not Now"), QMessageBox::RejectRole);
+    QPushButton *helpBtn = box->addButton(QStringLiteral("Help"), QMessageBox::HelpRole);
     box->setDefaultButton(import);
+    /* Help keeps the box up: a HelpRole button does not close it */
+    helpBtn->disconnect();
+    connect(helpBtn, &QPushButton::clicked, this, [this] { colecoHelpShow(this, QStringLiteral("nobios")); });
     connect(box, &QMessageBox::buttonClicked, this,
             [this, import, retry](QAbstractButton *b) {
         if (b != import) return;

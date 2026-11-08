@@ -5,10 +5,13 @@
  */
 
 #include "SettingsDialog.h"
+#include "help/HelpWindow.h"
 
 #include <QCheckBox>
 #include <QComboBox>
 #include <QDialogButtonBox>
+#include <QShortcut>
+#include <QShortcut>
 #include <QFileDialog>
 #include <QFileInfo>
 #include <QHBoxLayout>
@@ -219,8 +222,18 @@ bool SettingsDialog::run(QWidget *parent, colecosession *session)
     note->setWordWrap(true);
     outer->addWidget(note);
 
-    auto *buttons = new QDialogButtonBox(QDialogButtonBox::Ok |
-                                         QDialogButtonBox::Cancel);
+    /* Help, F1 and Ctrl+Shift+H (the app's shortcuts don't reach a modal dialog) */
+    auto pageContext = [tabs](int i) {
+        return i == 1 ? QStringLiteral("prefs/ROMs") : QStringLiteral("prefs/Machine");
+    };
+    dlg.setProperty("colecoHelpContext", pageContext(tabs->currentIndex()));
+    QObject::connect(tabs, &QTabWidget::currentChanged, &dlg,
+                     [&dlg, pageContext](int i) { dlg.setProperty("colecoHelpContext", pageContext(i)); });
+    auto *buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel |
+                                         QDialogButtonBox::Help);
+    QObject::connect(buttons, &QDialogButtonBox::helpRequested, &dlg, [&dlg] { colecoHelpFor(&dlg); });
+    for (const char *key : { "F1", "Ctrl+Shift+H" })
+        new QShortcut(QKeySequence(QString::fromLatin1(key)), &dlg, [&dlg] { colecoHelpFor(&dlg); });
     QObject::connect(buttons, &QDialogButtonBox::accepted, &dlg, [&] {
         char host[64];
         int port;

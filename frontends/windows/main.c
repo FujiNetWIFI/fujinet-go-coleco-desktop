@@ -29,6 +29,7 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "help/help_window.h"
 #include "colecosession.h"
 #include "debugger/dbg_window.h"
 #include "keypad/keypad_window.h"
@@ -135,7 +136,7 @@ static void paint(HDC dc)
 /* ---- input ---------------------------------------------------------------- */
 
 static int ask(HWND owner, const char *text, const char *title,
-               const char *yes, const char *no);
+               const char *yes, const char *no, const char *help);
 static int import_bios(HWND owner, int folder);
 
 /* A start that failed: when the reason is the missing BIOS the message names
@@ -145,7 +146,7 @@ static void report_start_failure(const char *title)
     char err[512];
     snprintf(err, sizeof err, "%s", colecosession_last_error(g_session));
     if (strstr(err, "Import BIOS") != NULL) {
-        if (ask(g_hwnd, err, "BIOS needed", "Import BIOS...", "Not Now"))
+        if (ask(g_hwnd, err, "BIOS needed", "Import BIOS...", "Not Now", "nobios"))
             import_bios(g_hwnd, 0);
         return;
     }
@@ -207,6 +208,8 @@ static void build_menu(HWND hwnd)
     AppendMenu(bar, MF_POPUP, (UINT_PTR)machine, "&Machine");
     AppendMenu(bar, MF_POPUP, (UINT_PTR)view, "&View");
     AppendMenu(bar, MF_POPUP, (UINT_PTR)fuji, "&FujiNet");
+    AppendMenu(help, MF_STRING, IDM_HELP, "FujiNet Go ColecoVision &Help\tCtrl+Shift+H");
+    AppendMenu(help, MF_SEPARATOR, 0, NULL);
     AppendMenu(help, MF_STRING, IDM_ABOUT, "&About FujiNet Go ColecoVision");
     AppendMenu(bar, MF_POPUP, (UINT_PTR)help, "&Help");
     SetMenu(hwnd, bar);
@@ -226,8 +229,23 @@ static wchar_t *wide_dup(const char *text)
     return w;
 }
 
+/* The task dialog's Help button (a third button that does not close it). */
+#define ASK_YES  1001
+#define ASK_NO   1002
+#define ASK_HELP 1003
+
+static HRESULT CALLBACK ask_callback(HWND dlg, UINT note, WPARAM wp, LPARAM lp, LONG_PTR ref)
+{
+    (void)lp;
+    if (note == TDN_BUTTON_CLICKED && wp == ASK_HELP) {
+        coleco_help_show(dlg, (const char *)ref);
+        return S_FALSE;
+    }
+    return S_OK;
+}
+
 static int ask(HWND owner, const char *text, const char *title,
-               const char *yes, const char *no)
+               const char *yes, const char *no, const char *help)
 {
     typedef HRESULT (WINAPI *task_fn)(const TASKDIALOGCONFIG *, int *, int *,
                                       BOOL *);
@@ -236,31 +254,35 @@ static int ask(HWND owner, const char *text, const char *title,
                           cc, "TaskDialogIndirect") : NULL;
     if (fn) {
         wchar_t *wt = wide_dup(text), *wc = wide_dup(title);
-        wchar_t *wy = wide_dup(yes), *wn = wide_dup(no);
-        TASKDIALOG_BUTTON buttons[2];
+        wchar_t *wy = wide_dup(yes), *wn = wide_dup(no), *wh = wide_dup("Help");
+        TASKDIALOG_BUTTON buttons[3];
         TASKDIALOGCONFIG cfg;
         int chosen = 0;
         HRESULT hr = E_FAIL;
-        if (wt && wc && wy && wn) {
+        if (wt && wc && wy && wn && wh) {
             memset(&cfg, 0, sizeof cfg);
-            buttons[0].nButtonID = 1001;
+            buttons[0].nButtonID = ASK_YES;
             buttons[0].pszButtonText = wy;
-            buttons[1].nButtonID = 1002;
+            buttons[1].nButtonID = ASK_NO;
             buttons[1].pszButtonText = wn;
+            buttons[2].nButtonID = ASK_HELP;
+            buttons[2].pszButtonText = wh;
             cfg.cbSize = sizeof cfg;
             cfg.hwndParent = owner;
             cfg.dwFlags = TDF_ALLOW_DIALOG_CANCELLATION;
             cfg.pszWindowTitle = wc;
             cfg.pszMainIcon = TD_INFORMATION_ICON;
             cfg.pszContent = wt;
-            cfg.cButtons = 2;
+            cfg.cButtons = help ? 3 : 2;
             cfg.pButtons = buttons;
-            cfg.nDefaultButton = 1001;
+            cfg.nDefaultButton = ASK_YES;
+            cfg.pfCallback = ask_callback;
+            cfg.lpCallbackData = (LONG_PTR)help;
             hr = fn(&cfg, &chosen, NULL, NULL);
         }
-        free(wt); free(wc); free(wy); free(wn);
+        free(wt); free(wc); free(wy); free(wn); free(wh);
         if (SUCCEEDED(hr))
-            return chosen == 1001;
+            return chosen == ASK_YES;
     }
     return MessageBoxA(owner, text, title,
                        MB_ICONINFORMATION | MB_YESNO) == IDYES;
@@ -364,6 +386,7 @@ static LRESULT CALLBACK settings_proc(HWND hwnd, UINT msg, WPARAM wp,
     switch (msg) {
     case WM_COMMAND:
         switch (LOWORD(wp)) {
+        case IDC_SET_HELP: coleco_help_for(hwnd); return 0;
         case IDC_SET_PALETTE:
             if (HIWORD(wp) == CBN_SELCHANGE) {
                 int sel = (int)SendMessageA(GetDlgItem(hwnd, IDC_SET_PALETTE),
@@ -508,7 +531,7 @@ static void show_settings(HINSTANCE inst)
     g_settings_window = CreateWindowA(
         "ColecoSettingsWindow", "Settings",
         WS_OVERLAPPEDWINDOW & ~(WS_MAXIMIZEBOX | WS_THICKFRAME),
-        CW_USEDEFAULT, CW_USEDEFAULT, 400, 590, NULL, NULL, inst, NULL);
+        CW_USEDEFAULT, CW_USEDEFAULT, 400, 640, NULL, NULL, inst, NULL);
 
     settings_label(g_settings_window, inst, "Machine", y, 18);
     y += 24;
@@ -615,6 +638,14 @@ static void show_settings(HINSTANCE inst)
     settings_label(g_settings_window, inst,
                    "Applied by restarting the session when this window "
                    "closes.", y, 32);
+    y += 36;
+    {
+        HWND hb = CreateWindowExA(0, "BUTTON", "Help", WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_PUSHBUTTON,
+                                  16, y, 80, 26, g_settings_window,
+                                  (HMENU)(INT_PTR)IDC_SET_HELP, inst, NULL);
+        SendMessageA(hb, WM_SETFONT, (WPARAM)font, TRUE);
+        coleco_help_set_context(g_settings_window, "prefs/Machine", 1);
+    }
 
     ShowWindow(g_settings_window, SW_SHOW);
 }
@@ -629,7 +660,8 @@ static void show_settings(HINSTANCE inst)
  */
 
 static HWND g_log_window;
-static HWND g_log_edit;
+static HWND g_log_edit, g_log_help;
+#define LOG_BAR 34
 
 static void log_refresh(void)
 {
@@ -680,10 +712,14 @@ static LRESULT CALLBACK log_proc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp)
         RECT rc;
         GetClientRect(hwnd, &rc);
         if (g_log_edit)
-            MoveWindow(g_log_edit, 0, 0, rc.right - rc.left,
-                       rc.bottom - rc.top, TRUE);
+            MoveWindow(g_log_edit, 0, LOG_BAR, rc.right - rc.left,
+                       rc.bottom - rc.top - LOG_BAR, TRUE);
+        if (g_log_help) MoveWindow(g_log_help, rc.right - 84, 4, 76, LOG_BAR - 8, TRUE);
         return 0;
     }
+    case WM_COMMAND:
+        if (LOWORD(wp) == IDC_LOG_HELP) { coleco_help_for(hwnd); return 0; }
+        break;
     case WM_TIMER:
         if (wp == IDT_LOG_REFRESH) log_refresh();
         return 0;
@@ -694,6 +730,7 @@ static LRESULT CALLBACK log_proc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp)
         KillTimer(hwnd, IDT_LOG_REFRESH);
         g_log_window = NULL;
         g_log_edit = NULL;
+        g_log_help = NULL;
         return 0;
     }
     return DefWindowProcA(hwnd, msg, wp, lp);
@@ -737,13 +774,18 @@ static void show_fujinet_log(HINSTANCE inst)
         WS_EX_CLIENTEDGE, "EDIT", "",
         WS_CHILD | WS_VISIBLE | WS_VSCROLL | WS_HSCROLL | ES_MULTILINE |
             ES_AUTOVSCROLL | ES_READONLY,
-        0, 0, rc.right - rc.left, rc.bottom - rc.top, g_log_window,
+        0, LOG_BAR, rc.right - rc.left, rc.bottom - rc.top - LOG_BAR, g_log_window,
         (HMENU)(INT_PTR)IDC_LOG_EDIT, inst, NULL);
+    g_log_help = CreateWindowA("BUTTON", "Help", WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_PUSHBUTTON, 0, 0, 10, 10,
+                               g_log_window, (HMENU)(INT_PTR)IDC_LOG_HELP, inst, NULL);
+    SendMessageA(g_log_help, WM_SETFONT, (WPARAM)GetStockObject(DEFAULT_GUI_FONT), TRUE);
+    coleco_help_set_context(g_log_window, "fujilog", 1);
     /* A fixed-pitch font: the runtime's output is timestamped columns. */
     SendMessageA(g_log_edit, WM_SETFONT,
                  (WPARAM)GetStockObject(ANSI_FIXED_FONT), TRUE);
 
     SetTimer(g_log_window, IDT_LOG_REFRESH, 1000, NULL);
+    SendMessageA(g_log_window, WM_SIZE, 0, 0);
     log_refresh();
     ShowWindow(g_log_window, SW_SHOW);
 }
@@ -838,6 +880,7 @@ static LRESULT CALLBACK wndproc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp)
             InvalidateRect(hwnd, NULL, TRUE);
             return 0;
         }
+        case IDM_HELP: coleco_help_for(hwnd); return 0;
         case IDM_ABOUT: {
             /* MB_USERICON with the app's own icon, not a stock Windows one. */
             MSGBOXPARAMSA mb;
@@ -958,6 +1001,7 @@ int WINAPI WinMain(HINSTANCE inst, HINSTANCE prev, LPSTR cmdline, int show)
         WS_OVERLAPPEDWINDOW, CW_USEDEFAULT, CW_USEDEFAULT, 848, 660,
         NULL, NULL, inst, NULL);
     if (!g_hwnd) return 1;
+    coleco_help_set_context(g_hwnd, "main", 0);       /* F1 stays bindable in the window itself */
     build_menu(g_hwnd);
     CheckMenuItem(GetMenu(g_hwnd), IDM_TV_ASPECT,
                   MF_BYCOMMAND | (g_tv_aspect ? MF_CHECKED : MF_UNCHECKED));
@@ -998,6 +1042,8 @@ int WINAPI WinMain(HINSTANCE inst, HINSTANCE prev, LPSTR cmdline, int show)
         /* Before TranslateMessage, so the debugger's F5/F7/F8 accelerators
          * work even while one of its edit fields has the focus. */
         if (coleco_debugger_pretranslate(&msg))
+            continue;
+        if (coleco_help_pretranslate(&msg))
             continue;
         TranslateMessage(&msg);
         DispatchMessage(&msg);

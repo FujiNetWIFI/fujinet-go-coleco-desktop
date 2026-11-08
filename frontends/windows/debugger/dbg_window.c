@@ -15,6 +15,7 @@
  */
 
 #include "dbg_window.h"
+#include "../help/help_window.h"
 
 #include <commctrl.h>
 #include <stdarg.h>
@@ -38,7 +39,7 @@
 /* Control ids. The register fields are contiguous from IDC_REG0. */
 enum {
     IDC_PAUSE = 1000, IDC_STEP_IN, IDC_STEP_OVER, IDC_STEP_OUT,
-    IDC_GOTO, IDC_TRACE, IDC_STATUS, IDC_TABS,
+    IDC_GOTO, IDC_TRACE, IDC_STATUS, IDC_TABS, IDC_HELP_BTN,
     IDC_DISASM, IDC_FLAGS, IDC_BP_ADD, IDC_BP_CLEAR, IDC_BP_LIST,
     IDC_MEM_ADDR, IDC_MEM_VIEW, IDC_TRACE_VIEW,
     IDC_PAT_BANK, IDC_SPRITE_INFO,
@@ -69,7 +70,7 @@ typedef struct {
     HWND hwnd;
     HWND tabs;
     HWND pause_btn, step_in, step_over, step_out;
-    HWND goto_edit, trace_check, status;
+    HWND goto_edit, trace_check, status, help_btn;
     HWND disasm;
     HWND reg_label[8], reg_edit[8], flags;
     HWND bp_label, bp_add, bp_clear, bp_list;
@@ -839,6 +840,7 @@ static void build_controls(debugger *d)
                            WS_VISIBLE | BS_AUTOCHECKBOX, IDC_TRACE);
     d->status = child(d, "STATIC", "Running", WS_VISIBLE | SS_LEFT,
                       IDC_STATUS);
+    d->help_btn = child(d, "BUTTON", "Help", WS_VISIBLE | BS_PUSHBUTTON, IDC_HELP_BTN);
 
     /* CPU page */
     d->disasm = mono_view(d, IDC_DISASM);
@@ -898,8 +900,16 @@ static void build_controls(debugger *d)
 }
 
 /* Show only the controls belonging to the selected tab. */
+/* Help's contexts (colecohelp.h), one per tab: CPU, VDP, VDP RAM, Trace, FujiNet */
+static const char *const k_tab_contexts[] = {
+    "debugger/cpu", "debugger/vdp", "debugger/vdp", "debugger/trace", "debugger/fujinet",
+};
+
 static void show_page(debugger *d, int page)
 {
+    /* Help, F1 and Ctrl+Shift+H open the tab's section */
+    if (page >= 0 && page < (int)(sizeof k_tab_contexts / sizeof k_tab_contexts[0]))
+        coleco_help_set_context(d->hwnd, k_tab_contexts[page], 1);
     HWND cpu[] = {d->disasm, d->reg_title, d->flags, d->bp_label, d->bp_add,
                   d->bp_clear, d->bp_list, d->mem_label, d->mem_addr,
                   d->mem_view};
@@ -943,7 +953,8 @@ static void layout(debugger *d)
     MoveWindow(d->step_out, bx, y, 150, 26, TRUE);    bx += 156;
     MoveWindow(d->goto_edit, bx, y + 2, 170, 22, TRUE); bx += 178;
     MoveWindow(d->trace_check, bx, y + 3, 70, 20, TRUE); bx += 78;
-    MoveWindow(d->status, bx, y + 5, client.right - bx - 8, 20, TRUE);
+    MoveWindow(d->help_btn, client.right - 8 - 72, y, 72, 26, TRUE);
+    MoveWindow(d->status, bx, y + 5, client.right - bx - 88 > 40 ? client.right - bx - 88 : 40, 20, TRUE);
 
     MoveWindow(d->tabs, 8, 40, client.right - 16, client.bottom - 48, TRUE);
     page = (RECT){8, 40, client.right - 8, client.bottom - 8};
@@ -1103,6 +1114,7 @@ static LRESULT CALLBACK dbg_proc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp)
             refresh_bps(d);
             refresh_disasm(d);
             return 0;
+        case IDC_HELP_BTN: coleco_help_for(d->hwnd); return 0;
         case IDC_TRACE:
             colecodebug_trace_enable(
                 d->dbg,

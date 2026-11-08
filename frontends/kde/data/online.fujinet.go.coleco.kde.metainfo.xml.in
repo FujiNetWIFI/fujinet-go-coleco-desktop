@@ -15,7 +15,7 @@
       The emulated FujiNet cartridge runs the real cartridge firmware's own
       protocol sources, so it behaves exactly as the hardware does. An Opcode
       Super Game Module is fitted by default, and every ColecoVision cartridge
-      mapper is supported.
+      mapper is supported. Built-in, searchable Help covers all of it.
     </p>
     <p>
       The ColecoVision BIOS is copyrighted firmware and is not included; it

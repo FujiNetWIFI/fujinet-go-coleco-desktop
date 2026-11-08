@@ -185,6 +185,21 @@ else()
     COMMENT "No embedded BIOS (the shipping configuration)")
 endif()
 
+# The Help, embedded: data/help/help.md as topics of styled spans
+# (core/include/colecohelp.h), which every frontend lays out with its own
+# toolkit. help_data.h declares the table; the build generates it.
+find_package(Python3 REQUIRED COMPONENTS Interpreter)
+set(COLECO_HELP_C "${CMAKE_BINARY_DIR}/generated/help_content.c")
+add_custom_command(
+  OUTPUT "${COLECO_HELP_C}"
+  COMMAND "${Python3_EXECUTABLE}" -I "${CMAKE_SOURCE_DIR}/tools/help/make-help.py"
+          --src "${CMAKE_SOURCE_DIR}/data/help/help.md"
+          --out-c "${COLECO_HELP_C}"
+  DEPENDS "${CMAKE_SOURCE_DIR}/tools/help/make-help.py"
+          "${CMAKE_SOURCE_DIR}/data/help/help.md"
+  COMMENT "Help"
+  VERBATIM)
+
 add_library(coleco_session STATIC
   src/session.c
   src/settings.c
@@ -197,6 +212,8 @@ add_library(coleco_session STATIC
   src/audio_sdl.c
   src/gamepad_sdl.c
   src/fujinet_runtime.c
+  src/help.c
+  "${COLECO_HELP_C}"
   "${ROMS_EMBEDDED_C}"
 )
 set_target_properties(coleco_session PROPERTIES C_STANDARD 11)

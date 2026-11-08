@@ -10,6 +10,7 @@
 #import "ColecoKeyForward.h"
 #import "DisplayView.h"
 #import "debugger/DebuggerWindow.h"
+#import "help/HelpWindow.h"
 #import "keypad/KeypadWindow.h"
 
 #include <string.h>
@@ -264,7 +265,24 @@
     [fujiItem setSubmenu:fuji];
     [bar addItem:fujiItem];
 
+    NSMenuItem *helpItem = [[NSMenuItem alloc] init];
+    NSMenu *help = [[NSMenu alloc] initWithTitle:@"Help"];
+    /* openHelp:, not showHelp: (AppKit's: "Help isn't available") */
+    [self item:help title:@"FujiNet Go ColecoVision Help" action:@selector(openHelp:) key:@"?"];
+    [helpItem setSubmenu:help];
+    [bar addItem:helpItem];
+
     [NSApp setMainMenu:bar];
+    [NSApp setHelpMenu:help];
+    /* the Help menu's search field finds the Help's sections too */
+    [NSApp registerUserInterfaceItemSearchHandler:[COLECOHelpWindow shared]];
+}
+
+/* For the window in front: Settings, the debugger's tab ... */
+- (void)openHelp:(id)sender
+{
+    (void)sender;
+    [[COLECOHelpWindow shared] showFor:[NSApp keyWindow]];
 }
 
 /* ---- settings ------------------------------------------------------------
@@ -458,7 +476,16 @@
      * delegate below still needs to be able to identify it. */
     _settingsWindow.releasedWhenClosed = NO;
     _settingsWindow.delegate = self;
-    _settingsWindow.contentView = root;
+    {
+        /* the settings over a strip with the Help button */
+        NSButton *helpBtn = COLECOHelpButton(@"prefs/Machine");
+        NSStackView *wrap = [NSStackView stackViewWithViews:@[root, helpBtn]];
+        wrap.orientation = NSUserInterfaceLayoutOrientationVertical;
+        wrap.alignment = NSLayoutAttributeLeading;
+        wrap.edgeInsets = NSEdgeInsetsMake(0, 16, 12, 16);
+        _settingsWindow.contentView = wrap;
+        COLECOSetHelpContext(_settingsWindow, @"prefs/Machine");
+    }
     [_settingsWindow center];
     [_settingsWindow makeKeyAndOrderFront:nil];
 }
@@ -607,6 +634,8 @@
     [a setInformativeText:text];
     [a addButtonWithTitle:@"Import BIOS…"];
     [a addButtonWithTitle:@"Not Now"];
+    a.showsHelp = YES;
+    a.delegate = self;
     if ([a runModal] == NSAlertFirstButtonReturn)
         [self importRomsFromPanel:NO];
 }
@@ -747,6 +776,14 @@
         [_logView scrollRangeToVisible:NSMakeRange(_logView.string.length, 0)];
 }
 
+/* The alert's Help button opens the nobios topic. */
+- (BOOL)alertShowHelp:(NSAlert *)alert
+{
+    (void)alert;
+    [[COLECOHelpWindow shared] showAt:@"nobios"];
+    return YES;
+}
+
 - (void)showFujiNetLog:(id)sender
 {
     (void)sender;
@@ -764,7 +801,8 @@
     }
 
     NSScrollView *scroll =
-        [[NSScrollView alloc] initWithFrame:NSMakeRect(0, 0, 820, 560)];
+        [[NSScrollView alloc] initWithFrame:NSMakeRect(0, 36, 820, 524)];
+    scroll.autoresizingMask = NSViewWidthSizable | NSViewHeightSizable;
     scroll.hasVerticalScroller = YES;
     scroll.autohidesScrollers = NO;
 
@@ -787,7 +825,17 @@
     _logWindow.title = @"FujiNet Console Log";
     _logWindow.releasedWhenClosed = NO;
     _logWindow.delegate = self;
-    _logWindow.contentView = scroll;
+    {
+        /* the log over a strip with the Help button */
+        NSView *box = [[NSView alloc] initWithFrame:NSMakeRect(0, 0, 820, 560)];
+        NSButton *help = COLECOHelpButton(@"fujilog");
+        [help setFrameOrigin:NSMakePoint(10, 6)];
+        help.autoresizingMask = NSViewMaxXMargin | NSViewMaxYMargin;
+        [box addSubview:scroll];
+        [box addSubview:help];
+        _logWindow.contentView = box;
+    }
+    COLECOSetHelpContext(_logWindow, @"fujilog");
     [_logWindow center];
 
     _logTimer = [NSTimer scheduledTimerWithTimeInterval:1.0

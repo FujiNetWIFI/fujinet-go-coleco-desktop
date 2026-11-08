@@ -12,6 +12,8 @@
 
 #import "DebuggerWindow.h"
 
+#import "../help/HelpWindow.h"
+
 #include "colecodebug.h"
 
 #define DISASM_LINES 40
@@ -261,6 +263,7 @@ static NSTextView *monoView(NSScrollView **scrollOut)
                     backing:NSBackingStoreBuffered
                       defer:NO];
     _window.title = @"ColecoVision Debugger";
+    [self updateHelpContext];
     _window.releasedWhenClosed = NO;
 
     /* Toolbar row */
@@ -293,8 +296,10 @@ static NSTextView *monoView(NSScrollView **scrollOut)
     _status = [self label:@"Running"];
     _status.alignment = NSTextAlignmentRight;
 
+    NSButton *helpBtn = COLECOHelpButton(nil);
+    [helpBtn setRefusesFirstResponder:YES];
     NSStackView *toolbar = [NSStackView stackViewWithViews:@[
-        _pauseBtn, stepIn, stepOver, stepOut, gotoField, trace, _status
+        _pauseBtn, stepIn, stepOver, stepOut, gotoField, trace, _status, helpBtn
     ]];
     toolbar.orientation = NSUserInterfaceLayoutOrientationHorizontal;
     toolbar.spacing = 8;
@@ -531,6 +536,7 @@ static NSTextView *monoView(NSScrollView **scrollOut)
         [tabs selectTabViewItemAtIndex:TAB_FUJINET];
     tabs.delegate = self;
     _tabs = tabs;
+    [self updateHelpContext];
 
     NSStackView *root = [NSStackView stackViewWithViews:@[ toolbar, tabs ]];
     root.orientation = NSUserInterfaceLayoutOrientationVertical;
@@ -651,8 +657,18 @@ static NSTextView *monoView(NSScrollView **scrollOut)
         [_fujiText scrollRangeToVisible:NSMakeRange(_fujiText.string.length, 0)];
 }
 
+/* Help's contexts (colecohelp.h), one per tab: CPU, VDP, VDP RAM, Trace, FujiNet */
+- (void)updateHelpContext
+{
+    static NSString *const kHelpTabs[] = { @"cpu", @"vdp", @"vdp", @"trace", @"fujinet" };
+    NSInteger i = [_tabs indexOfTabViewItem:_tabs.selectedTabViewItem];
+    if (i >= 0 && i < 5)
+        COLECOSetHelpContext(_window, [@"debugger/" stringByAppendingString:kHelpTabs[i]]);
+}
+
 - (void)tabView:(NSTabView *)tabView didSelectTabViewItem:(NSTabViewItem *)item
 {
+    [self updateHelpContext];
     if ([tabView indexOfTabViewItem:item] != TAB_FUJINET)
         return;
     [item.view layoutSubtreeIfNeeded];

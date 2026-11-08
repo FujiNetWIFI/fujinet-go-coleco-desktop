@@ -17,6 +17,7 @@
 #include <string.h>
 
 #include "colecodebug.h"
+#include "../help/help_window.h"
 
 #define DISASM_LINES 40
 #define MEM_ROWS 16
@@ -655,11 +656,19 @@ static void on_fuji_clear(GtkButton *b, gpointer ud)
     refresh_fujinet(w, TRUE);
 }
 
+/* Help's contexts (colecohelp.h), one per tab */
+static const char *const k_tab_contexts[] = {
+    "debugger/cpu", "debugger/vdp", "debugger/trace", "debugger/fujinet",
+};
+
 static void on_switch_page(GtkNotebook *nb, GtkWidget *page, guint num,
                            gpointer ud)
 {
+    DbgWin *hw = ud;
     (void)nb;
     (void)page;
+    if (num < G_N_ELEMENTS(k_tab_contexts))
+        coleco_help_set_context(hw->win, k_tab_contexts[num]);
     if (num == PAGE_FUJINET)
         refresh_fujinet(ud, FALSE);
 }
@@ -679,6 +688,9 @@ static gboolean on_key(GtkEventControllerKey *c, guint keyval, guint keycode,
     (void)c;
     (void)keycode;
     switch (keyval) {
+    case GDK_KEY_F1:
+        coleco_help_for(w->win);
+        return TRUE;
     case GDK_KEY_F5:
         on_pause_continue(NULL, w);
         return TRUE;
@@ -1036,7 +1048,11 @@ void coleco_debugger_show(GtkWindow *parent, colecosession *session)
 
     root = gtk_box_new(GTK_ORIENTATION_VERTICAL, 0);
     tb = adw_toolbar_view_new();
-    adw_toolbar_view_add_top_bar(ADW_TOOLBAR_VIEW(tb), adw_header_bar_new());
+    {
+        GtkWidget *hdr = adw_header_bar_new();
+        adw_header_bar_pack_end(ADW_HEADER_BAR(hdr), coleco_help_button(NULL));
+        adw_toolbar_view_add_top_bar(ADW_TOOLBAR_VIEW(tb), hdr);
+    }
     gtk_box_append(GTK_BOX(root), toolbar);
     gtk_box_append(GTK_BOX(root), notebook);
     gtk_widget_set_vexpand(notebook, TRUE);
@@ -1064,6 +1080,10 @@ void coleco_debugger_show(GtkWindow *parent, colecosession *session)
                                           PAGE_FUJINET);
     }
     g_signal_connect(notebook, "switch-page", G_CALLBACK(on_switch_page), w);
+    {
+        int cur = gtk_notebook_get_current_page(GTK_NOTEBOOK(notebook));
+        coleco_help_set_context(w->win, k_tab_contexts[cur > 0 && cur < 4 ? cur : 0]);
+    }
 
     refresh_all(w);
     gtk_window_present(w->win);

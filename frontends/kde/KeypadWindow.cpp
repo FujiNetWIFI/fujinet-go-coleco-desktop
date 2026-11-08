@@ -8,6 +8,7 @@
  */
 
 #include "KeypadWindow.h"
+#include "help/HelpWindow.h"
 
 #include <QGridLayout>
 #include <QGroupBox>
@@ -64,6 +65,7 @@ KeypadWindow::KeypadWindow(colecosession *session, QWidget *parent)
     : QWidget(parent, Qt::Dialog), m_session(session)
 {
     setWindowTitle(QStringLiteral("Controllers"));
+    setProperty("colecoHelpContext", QStringLiteral("keypad"));
     coleco_input_reset(&m_keys);
 
     auto *root = new QVBoxLayout(this);
@@ -104,6 +106,7 @@ KeypadWindow::KeypadWindow(colecosession *session, QWidget *parent)
     maprow->addWidget(m_mapButton);
     maprow->addWidget(defaults);
     maprow->addWidget(m_hint, 1);
+    maprow->addWidget(colecoHelpButton(QStringLiteral("keypad")));
     root->addLayout(maprow);
 
     setMapState(-2);

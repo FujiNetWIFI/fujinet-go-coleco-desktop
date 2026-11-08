@@ -34,6 +34,11 @@ there is marked done on "it compiles".
   with their attribute table, and the palette, all rendered from live VRAM.
   The FujiNet tab shows every FujiBus packet between the cartridge and
   FujiNet, both ways, with hex, recorded from the moment the machine starts.
+- **Built-in Help.** **Help ▸ FujiNet Go ColecoVision Help** (Ctrl+Shift+H, ⌘?
+  on a Mac) opens a searchable Help, and the Help buttons in Preferences, the
+  Controllers window, the debugger and the console log open the topic for what
+  they show. The text is [data/help/help.md](data/help/help.md), which GitHub
+  shows as it is; the build embeds it and every frontend lays it out natively.
 - **A clickable controller panel** showing both hand controllers, with every
   control remappable. Buttons are *held*, not pulsed: the machine samples the
   controller once a frame, so a value present for only an instant falls

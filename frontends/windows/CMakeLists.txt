@@ -19,6 +19,7 @@ enable_language(RC)
 
 add_executable(fujinet-go-coleco-windows WIN32
   main.c
+  help/help_window.c
   import.c
   keypad/keypad_window.c
   debugger/dbg_window.c

@@ -20,6 +20,10 @@ void coleco_css_install(void);
 
 GtkWidget *coleco_window_new(AdwApplication *app, colecosession *session);
 
+/* The Help context the main window shows now: "main", or "prefs/<page>"
+ * while Preferences is open. */
+const char *coleco_window_help_context(ColecoWindow *self);
+
 /* Import BIOS: a chooser for files (several, zips allowed) or one folder, then
  * a result dialog over `over` (the window when NULL). `apply` power-cycles the
  * console when the import supplied a BIOS that was missing. `done` gets the

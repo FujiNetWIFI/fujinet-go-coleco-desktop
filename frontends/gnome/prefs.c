@@ -16,6 +16,7 @@
 #include "prefs.h"
 
 #include "window.h"
+#include "help/help_window.h"
 
 /* The four TMS9928A palettes colecovid.c knows how to build. */
 static const char *const palette_names[] = {"Default (TMS9928A)", "Palette 2",
@@ -204,10 +205,11 @@ static AdwPreferencesPage *build_roms_page(PrefsState *state)
     GtkWidget *box, *files, *folder, *row, *open, *detail;
 
     adw_preferences_page_set_title(page, "ROMs");
-    adw_preferences_page_set_name(page, "roms");
+    adw_preferences_page_set_name(page, "ROMs");
     adw_preferences_page_set_icon_name(page, "media-flash-symbolic");
 
     adw_preferences_group_set_title(group, "Import");
+    adw_preferences_group_set_header_suffix(group, coleco_help_button("prefs/ROMs"));
     row = info_row("Import BIOS",
         "Your own copy: a single file, a zip (MAME's coleco.zip works) or a "
         "folder. The BIOS is recognised by its size and checksum, whatever it "
@@ -284,9 +286,11 @@ void coleco_prefs_show(ColecoWindow *parent, colecosession *session,
 
     adw_dialog_set_title(ADW_DIALOG(dialog), "Preferences");
     adw_preferences_page_set_title(page, "Machine");
+    adw_preferences_page_set_name(page, "Machine");
     adw_preferences_page_set_icon_name(page, "applications-games-symbolic");
 
     adw_preferences_group_set_title(machine, "Machine");
+    adw_preferences_group_set_header_suffix(machine, coleco_help_button("prefs/Machine"));
     adw_preferences_group_set_description(
         machine, "Applied by restarting the session when this dialog closes");
     adw_preferences_group_add(

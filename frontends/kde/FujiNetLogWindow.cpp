@@ -7,11 +7,16 @@
 #include "FujiNetLogWindow.h"
 
 #include <QFont>
+#include <QHBoxLayout>
 #include <QPlainTextEdit>
+#include <QPushButton>
+#include <QShortcut>
 #include <QPointer>
 #include <QScrollBar>
 #include <QTimer>
 #include <QVBoxLayout>
+
+#include "help/HelpWindow.h"
 
 void fujinet_log_show(QWidget *parent, colecosession *session)
 {
@@ -25,6 +30,8 @@ void fujinet_log_show(QWidget *parent, colecosession *session)
     win->setAttribute(Qt::WA_DeleteOnClose);
     win->setWindowTitle(QStringLiteral("FujiNet Console Log"));
     win->resize(820, 560);
+    win->setProperty("colecoHelpContext", QStringLiteral("fujilog"));
+    new QShortcut(QKeySequence(Qt::Key_F1), win, [] { colecoHelpFor(win); });
 
     auto *view = new QPlainTextEdit(win);
     view->setReadOnly(true);
@@ -36,6 +43,13 @@ void fujinet_log_show(QWidget *parent, colecosession *session)
     auto *layout = new QVBoxLayout(win);
     layout->setContentsMargins(0, 0, 0, 0);
     layout->addWidget(view);
+    {
+        auto *bar = new QHBoxLayout;
+        bar->setContentsMargins(6, 2, 6, 4);
+        bar->addStretch(1);
+        bar->addWidget(colecoHelpButton(QStringLiteral("fujilog")));
+        layout->addLayout(bar);
+    }
 
     auto *timer = new QTimer(win);
     auto refresh = [view, session]() {

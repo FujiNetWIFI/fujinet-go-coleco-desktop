@@ -26,6 +26,7 @@ add_executable(fujinet-go-coleco-macos MACOSX_BUNDLE
   DisplayView.m
   ColecoKeyForward.m
   AccentColor.m
+  help/HelpWindow.m
   keypad/KeypadWindow.m
   debugger/DebuggerWindow.m
   "${COLECO_ICNS}"

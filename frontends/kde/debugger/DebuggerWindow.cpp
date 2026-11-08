@@ -11,6 +11,7 @@
  */
 
 #include "DebuggerWindow.h"
+#include "../help/HelpWindow.h"
 
 #include <QCheckBox>
 #include <QComboBox>
@@ -208,12 +209,14 @@ void DebuggerWindow::buildUi()
         colecodebug_trace_enable(m_dbg, on ? 1 : 0);
     });
     tb->addWidget(trace);
+    tb->addWidget(colecoHelpButton(QString()));
 
     m_status = new QLabel(QStringLiteral("Running"));
     m_status->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
     m_status->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
     tb->addWidget(m_status);
 
+    new QShortcut(QKeySequence(Qt::Key_F1), this, [this] { colecoHelpFor(this); });
     new QShortcut(QKeySequence(Qt::Key_F5), this,
                   [this] { pauseContinue(); });
     new QShortcut(QKeySequence(Qt::Key_F7), this,
@@ -460,6 +463,21 @@ void DebuggerWindow::buildUi()
         if (shown)
             refreshFujinet(false);
     });
+
+    /* Help opens the topic of the raised tab: VDP and VRAM are one topic */
+    {
+        const std::pair<QDockWidget *, const char *> helpDocks[] = {
+            { vdpDock, "debugger/vdp" }, { vramDock, "debugger/vdp" },
+            { traceDock, "debugger/trace" }, { fujiDock, "debugger/fujinet" },
+        };
+        setProperty("colecoHelpContext", QStringLiteral("debugger/vdp"));
+        for (const auto &hd : helpDocks) {
+            const QString ctx = QLatin1String(hd.second);
+            connect(hd.first, &QDockWidget::visibilityChanged, this, [this, ctx](bool shown) {
+                if (shown) setProperty("colecoHelpContext", ctx);
+            });
+        }
+    }
 
     tabifyDockWidget(vdpDock, vramDock);
     tabifyDockWidget(vramDock, traceDock);

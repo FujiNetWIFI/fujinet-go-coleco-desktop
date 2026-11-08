@@ -48,6 +48,11 @@ add_executable(bindings_test bindings_test.c)
 target_link_libraries(bindings_test coleco_session)
 add_test(NAME bindings COMMAND bindings_test)
 
+# The built-in Help covers every setting, key and context.
+add_executable(help_test help_test.c)
+target_link_libraries(help_test PRIVATE coleco_session)
+add_test(NAME help COMMAND help_test)
+
 # The external-FujiNet address field's parser.
 add_executable(hostport_test hostport_test.c)
 target_link_libraries(hostport_test coleco_session)

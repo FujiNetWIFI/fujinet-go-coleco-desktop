@@ -22,6 +22,7 @@
 
 #import "../AccentColor.h"
 #import "../ColecoKeyForward.h"
+#import "../help/HelpWindow.h"
 
 /* -2 idle, -1 armed and waiting for a target, >= 0 waiting for a key. */
 static int g_mapState = -2;
@@ -169,6 +170,7 @@ static const int kOrder[12] = { 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 0, 11 };
                     backing:NSBackingStoreBuffered
                       defer:NO];
     [win setTitle:@"Controllers"];
+    COLECOSetHelpContext(win, @"keypad");
     /* A utility panel: floats above the machine's window and stays out of the
      * way, which is what this is for. */
     [win setLevel:NSFloatingWindowLevel];
@@ -206,7 +208,10 @@ static const int kOrder[12] = { 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 0, 11 };
     [content addSubview:defaults];
 
     _hint = [NSTextField labelWithString:@""];
-    [_hint setFrame:NSMakeRect(GAP + 176, bottom - BTN_H + 6, width - 190, 18)];
+    NSButton *helpBtn = COLECOHelpButton(@"keypad");
+    [helpBtn setFrame:NSMakeRect(width - GAP - 30, bottom - BTN_H + 2, 26, 26)];
+    [content addSubview:helpBtn];
+    [_hint setFrame:NSMakeRect(GAP + 176, bottom - BTN_H + 6, width - 226, 18)];
     [_hint setTextColor:[NSColor secondaryLabelColor]];
     [content addSubview:_hint];
 

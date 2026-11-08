@@ -16,6 +16,7 @@
 
 #include "display.h"
 #include "fujilog.h"
+#include "help/help_window.h"
 #include "prefs.h"
 #include "debugger/dbg_window.h"
 #include "keypad/keypad_window.h"
@@ -31,6 +32,7 @@ struct _ColecoWindow {
     GtkWidget *status;          /* the FujiNet link indicator */
     coleco_input_state input;
     guint status_id;
+    AdwDialog *bios_alert;      /* the "needs the BIOS" alert while it is up */
 };
 
 G_DEFINE_FINAL_TYPE(ColecoWindow, coleco_window, ADW_TYPE_APPLICATION_WINDOW)
@@ -252,11 +254,19 @@ static void action_import_bios_folder(GSimpleAction *a, GVariant *p, gpointer us
     coleco_window_import_bios(user_data, GTK_WIDGET(user_data), TRUE, TRUE, NULL, NULL);
 }
 
+static void show_bios_needed(ColecoWindow *self);
+
 static void on_bios_needed_response(AdwAlertDialog *dlg, const char *response,
                                     gpointer user_data)
 {
     ColecoWindow *self = user_data;
     (void)dlg;
+    if (strcmp(response, "help") == 0) {
+        /* the topic opens and the message comes back, Import button and all */
+        coleco_help_show(GTK_WINDOW(self), "nobios");
+        show_bios_needed(self);
+        return;
+    }
     if (strcmp(response, "import") != 0)
         return;
     coleco_window_import_bios(self, GTK_WIDGET(self), FALSE, TRUE, NULL, NULL);
@@ -274,12 +284,15 @@ static void show_bios_needed(ColecoWindow *self)
         "folder that holds either.");
     adw_alert_dialog_add_responses(ADW_ALERT_DIALOG(dlg),
                                    "later", "_Not Now",
+                                   "help", "_Help",
                                    "import", "_Import BIOS\xe2\x80\xa6", NULL);
     adw_alert_dialog_set_response_appearance(ADW_ALERT_DIALOG(dlg), "import",
                                              ADW_RESPONSE_SUGGESTED);
     adw_alert_dialog_set_default_response(ADW_ALERT_DIALOG(dlg), "import");
     adw_alert_dialog_set_close_response(ADW_ALERT_DIALOG(dlg), "later");
     g_signal_connect(dlg, "response", G_CALLBACK(on_bios_needed_response), self);
+    self->bios_alert = dlg;
+    g_object_add_weak_pointer(G_OBJECT(dlg), (gpointer *)&self->bios_alert);
     adw_dialog_present(dlg, GTK_WIDGET(self));
 }
 
@@ -312,7 +325,14 @@ static gboolean on_key_pressed(GtkEventControllerKey *ctrl, guint keyval,
 {
     ColecoWindow *self = user_data;
     int sysact;
-    (void)ctrl; (void)keycode; (void)state;
+    (void)ctrl; (void)keycode;
+
+    /* F1 is Help while Preferences or another dialog is open */
+    if (keyval == GDK_KEY_F1 && adw_application_window_get_visible_dialog(ADW_APPLICATION_WINDOW(self)) &&
+        !(state & GDK_MODIFIER_MASK & ~GDK_LOCK_MASK)) {
+        coleco_help_for(GTK_WINDOW(self));
+        return TRUE;
+    }
 
     /* F9 belongs to the window, not the machine, and is deliberately not
      * bindable: it is how you reach the panel that does the binding. */
@@ -604,6 +624,32 @@ static void action_smooth(GSimpleAction *a, GVariant *p, gpointer user_data)
     colecosession_set_int(self->session, "smooth", sm ? 1 : 0);
 }
 
+const char *coleco_window_help_context(ColecoWindow *self)
+{
+    AdwDialog *d = adw_application_window_get_visible_dialog(ADW_APPLICATION_WINDOW(self));
+    if (d && d == self->bios_alert)
+        return "nobios";
+    if (d && ADW_IS_PREFERENCES_DIALOG(d)) {
+        static char ctx[64];
+        const char *page = adw_preferences_dialog_get_visible_page_name(ADW_PREFERENCES_DIALOG(d));
+        g_snprintf(ctx, sizeof ctx, "prefs/%s", page ? page : "Machine");
+        return ctx;
+    }
+    return "main";
+}
+
+/* app.help: every window's Ctrl+Shift+H, for what it shows. Not a cast of
+ * the active window: it can be the debugger, the controllers or the log. */
+static void action_help(GSimpleAction *a, GVariant *p, gpointer user_data)
+{
+    (void)a; (void)p;
+    coleco_help_for(gtk_application_get_active_window(GTK_APPLICATION(user_data)));
+}
+
+static const GActionEntry app_actions[] = {
+    { "help", action_help, NULL, NULL, NULL, { 0 } },
+};
+
 static const GActionEntry win_actions[] = {
     { "open", action_open, NULL, NULL, NULL, { 0 } },
     { "eject", action_eject, NULL, NULL, NULL, { 0 } },
@@ -650,6 +696,7 @@ static GMenu *build_menu(void)
     g_menu_append_section(menu, NULL, G_MENU_MODEL(fuji));
 
     g_menu_append(app, "_Preferences", "win.prefs");
+    g_menu_append(app, "_Help", "app.help");
     g_menu_append(app, "_About FujiNet Go ColecoVision", "win.about");
     g_menu_append_section(menu, NULL, G_MENU_MODEL(app));
 
@@ -697,13 +744,19 @@ GtkWidget *coleco_window_new(AdwApplication *app, colecosession *session)
 
     g_action_map_add_action_entries(G_ACTION_MAP(self), win_actions,
                                     G_N_ELEMENTS(win_actions), self);
+    if (!g_action_map_lookup_action(G_ACTION_MAP(app), "help"))
+        g_action_map_add_action_entries(G_ACTION_MAP(app), app_actions,
+                                        G_N_ELEMENTS(app_actions), app);
     /* Ctrl+comma is the GNOME-wide Preferences accelerator. F9/F12 are
      * handled in on_key_pressed with the rest of the machine keys, because
      * they must work while the keypad or debugger window has the focus. */
     {
         static const char *const prefs_accels[] = { "<Control>comma", NULL };
+        static const char *const help_accels[] = { "<Control><Shift>h", NULL };
         gtk_application_set_accels_for_action(GTK_APPLICATION(app),
                                               "win.prefs", prefs_accels);
+        gtk_application_set_accels_for_action(GTK_APPLICATION(app),
+                                              "app.help", help_accels);
     }
 
     header = adw_header_bar_new();

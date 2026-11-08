@@ -12,6 +12,7 @@
  */
 
 #include "fujilog.h"
+#include "help/help_window.h"
 
 #include <string.h>
 
@@ -76,6 +77,16 @@ static gboolean refresh(gpointer user_data)
     return G_SOURCE_CONTINUE;
 }
 
+static gboolean on_key(GtkEventControllerKey *c, guint keyval, guint code,
+                       GdkModifierType st, gpointer ud)
+{
+    (void)c; (void)code; (void)st;
+    if (keyval != GDK_KEY_F1)
+        return FALSE;
+    coleco_help_for(ud);
+    return TRUE;
+}
+
 void coleco_fujilog_show(GtkWindow *parent, colecosession *session)
 {
     static GtkWindow *existing;
@@ -110,9 +121,14 @@ void coleco_fujilog_show(GtkWindow *parent, colecosession *session)
     {
         GtkWidget *box = gtk_box_new(GTK_ORIENTATION_VERTICAL, 0);
         GtkWidget *toolbar = adw_toolbar_view_new();
+        GtkWidget *header = adw_header_bar_new();
+        GtkEventController *keys = gtk_event_controller_key_new();
         gtk_box_append(GTK_BOX(box), scroll);
-        adw_toolbar_view_add_top_bar(ADW_TOOLBAR_VIEW(toolbar),
-                                     adw_header_bar_new());
+        adw_header_bar_pack_end(ADW_HEADER_BAR(header), coleco_help_button("fujilog"));
+        coleco_help_set_context(lw->win, "fujilog");
+        g_signal_connect(keys, "key-pressed", G_CALLBACK(on_key), lw->win);
+        gtk_widget_add_controller(GTK_WIDGET(lw->win), keys);
+        adw_toolbar_view_add_top_bar(ADW_TOOLBAR_VIEW(toolbar), header);
         adw_toolbar_view_set_content(ADW_TOOLBAR_VIEW(toolbar), box);
         adw_window_set_content(ADW_WINDOW(lw->win), toolbar);
     }

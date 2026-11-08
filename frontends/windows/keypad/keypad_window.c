@@ -27,6 +27,7 @@
 #include <string.h>
 
 #include "../accent_button.h"
+#include "../help/help_window.h"
 #include "../key_forward.h"
 
 #define PAD_CLASS "FujiNetGoColecoKeypad"
@@ -48,7 +49,7 @@ static pad_button g_btn[COLECO_TARGET_COUNT];
 static int g_nbtn;
 static int g_held = -1;          /* target under the captured mouse, or -1 */
 static int g_map_state = -2;     /* -2 idle, -1 armed, >=0 awaiting a key */
-static RECT g_map_rc, g_defaults_rc;
+static RECT g_map_rc, g_defaults_rc, g_help_rc;
 static coleco_input_state g_keys;
 
 static void add_button(const char *face, int target, int x, int y, int w)
@@ -115,6 +116,7 @@ static void layout(void)
 
     SetRect(&g_map_rc, GAP, y, GAP + 64, y + BTN_H);
     SetRect(&g_defaults_rc, GAP + 68, y, GAP + 68 + 80, y + BTN_H);
+    SetRect(&g_help_rc, GAP + panelw + GAP * 3 + panelw - 60, y, GAP + panelw + GAP * 3 + panelw, y + BTN_H);
 }
 
 static void press_target(int target, int down)
@@ -198,12 +200,14 @@ static void paint_panel(HDC dc)
     DrawFrameControl(dc, &g_defaults_rc, DFC_BUTTON, DFCS_BUTTONPUSH);
     DrawText(dc, "Defaults", -1, &g_defaults_rc,
              DT_CENTER | DT_VCENTER | DT_SINGLELINE);
+    DrawFrameControl(dc, &g_help_rc, DFC_BUTTON, DFCS_BUTTONPUSH);
+    DrawText(dc, "Help", -1, &g_help_rc, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
 
     if (g_map_state != -2) {
         RECT hint;
         char msg[96];
         SetRect(&hint, g_defaults_rc.right + GAP * 2, g_map_rc.top,
-                client.right - GAP, g_map_rc.bottom);
+                g_help_rc.left - GAP, g_map_rc.bottom);
         if (g_map_state == -1)
             snprintf(msg, sizeof msg, "Click a control to remap");
         else
@@ -237,6 +241,7 @@ static LRESULT CALLBACK pad_proc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp)
             InvalidateRect(hwnd, NULL, TRUE);
             return 0;
         }
+        if (PtInRect(&g_help_rc, p)) { coleco_help_show(hwnd, "keypad"); return 0; }
         if (PtInRect(&g_defaults_rc, p)) {
             coleco_bindings_reset_defaults(g_session);
             InvalidateRect(hwnd, NULL, TRUE);
@@ -350,6 +355,7 @@ void coleco_keypad_window_toggle(HWND parent, colecosession *session)
             want.right - want.left, want.bottom - want.top,
             parent, NULL, wc.hInstance, NULL);
         if (!g_panel) return;
+        coleco_help_set_context(g_panel, "keypad", 0);
     }
 
     if (IsWindowVisible(g_panel)) {
