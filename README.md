@@ -16,7 +16,7 @@ there is marked done on "it compiles".
 |---|---|
 | **Emulator** | [adamcore](https://github.com/tschak909/adamcore), clean-room GPLv3. Z80 validated against Tom Harte's SingleStepTests and ZEXDOC/ZEXALL, TMS9928A VDP, SN76489, and the Opcode Super Game Module — which reaches **TEST COMPLETED!** on Óscar Toledo G.'s own `super_game_module_test.rom`. |
 | **FujiNet** | The cartridge device compiles the RP2040 firmware's own protocol sources verbatim and dials a real `fujinet-pc`, built in-process as `libfujinet`. Verified on the wire: `dev=70 cmd=F4 seq=1 → err=0 reply=06 rxlen=256 "SD"`. |
-| **Frontends** | GNOME (GTK4/libadwaita), KDE (Qt6 Widgets), macOS (AppKit), Windows (Win32/GDI) — each with the display, a two-controller keypad window, a Preferences dialog, a live FujiNet console log, and a full Z80 + VDP debugger. |
+| **Frontends** | GNOME (GTK4/libadwaita), KDE (Qt6 Widgets), macOS (AppKit), Windows (Win32/GDI) — each with the display, a skinned two-controller Controllers window, a Preferences dialog, a live FujiNet console log, and a full Z80 + VDP debugger. |
 | **Packaging** | Per-frontend DEB/RPM/TGZ, two Flatpaks, a Windows zip and NSIS installer, and a macOS bundle (signed and notarised when the credentials are configured), all through GitHub Actions. |
 
 ## What it is
@@ -39,10 +39,38 @@ there is marked done on "it compiles".
   Controllers window, the debugger and the console log open the topic for what
   they show. The text is [data/help/help.md](data/help/help.md), which GitHub
   shows as it is; the build embeds it and every frontend lays it out natively.
-- **A clickable controller panel** showing both hand controllers, with every
-  control remappable. Buttons are *held*, not pulsed: the machine samples the
+- **A skinned Controllers window** (F9) drawn as the two ColecoVision hand
+  controllers, clickable and draggable, with every control remappable and held
+  controls lit. Buttons are *held*, not pulsed: the machine samples the
   controller once a frame, so a value present for only an instant falls
-  between frames and a polling game never sees it.
+  between frames and a polling game never sees it. See
+  [Controllers](#controllers-f9).
+
+## Controllers (F9)
+
+The Controllers window floats at a fixed size and draws both hand controllers:
+the short stick in a ring of eight direction wedges, a fire button on each
+side, and the 12-key keypad on a silver overlay card. Press a key or a fire
+button to hold it, drag the stick to tilt it. Held controls light up whoever
+holds them (keyboard, gamepad or mouse). The Reset Console and Reset to CONFIG
+buttons are under the controllers, **Map / Clear / Defaults / Show bindings**
+change the controls, and each gamepad has a row to pick its controller.
+
+| | Controller 1 | Controller 2 |
+|---|---|---|
+| Keypad 0-9 | digit row 0-9 | - |
+| Keypad `*` / `#` | numeric keypad `*` / `/` | - |
+| Stick | arrow keys | W A S D |
+| Left fire / right fire | Left Ctrl / Left Alt | Left Shift / Tab |
+| Gamepad | D-pad or left stick = stick, South = left fire, East = right fire, West / North = keys 1 / 2, shoulders = `*` / `#` | the second pad, the same |
+
+The numeric keypad's digits dial too, with Num Lock on or off. **F5** is Reset
+Console and **F6** Reset to CONFIG (the power cycle). Every one of the 38
+controls can be given another key or gamepad button (**Map**); controls saved
+by earlier versions are carried over. Gamepads (USB or Bluetooth, mapped or
+plain HID adapters) are assigned in order: the first drives Controller 1, the
+next Controller 2, unless you pick *Controller 1* or *Controller 2* in the
+window or in Preferences ▸ Input. That choice is remembered between runs.
 
 ## External FujiNet
 

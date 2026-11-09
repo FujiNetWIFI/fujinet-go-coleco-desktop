@@ -85,8 +85,8 @@ Console** ⌘R, **Controllers** ⌘K and **Debugger** ⌘D.
 
 A **Needs BIOS** message (with an **Import BIOS…** button) appears when the
 console has no BIOS to start with. See [Needing the BIOS](#needing-the-bios).
-Other messages (a cartridge opened, the console reset, FujiNet restarted) show
-for a few seconds over the picture.
+Other messages (a cartridge opened, the console reset, FujiNet restarted, a
+gamepad plugged in or taken out) show for a few seconds.
 
 ## Reset and power
 
@@ -103,27 +103,39 @@ them sharp when it is off.
 
 # Controllers and keys
 
-The ColecoVision has two hand controllers: a four-way stick (eight directions
-together), two fire buttons and a keypad of 1 to 9, `*`, 0 and `#`.
+The ColecoVision has two hand controllers. Each has a short stick (eight
+directions, from four switches), a fire button on each side of the case and a
+keypad of 1 to 9, `*`, 0 and `#`. The **left fire** and the **right fire** are
+two separate buttons, and a game may ask for either.
+
+All of a controller's contacts can be held at once, from any mix of the
+keyboard, a gamepad and the mouse: letting go of one never lets go of another.
+Opposite directions held together cancel, and the console reads one keypad
+key at a time, the lowest held.
 
 ## Default keys
 
-Port 1 has the arrow keys and the digits, because that is where a one-player
-game looks. Port 2 has no keypad: a keyboard has one set of digits, and the
-Controllers window covers the second controller's.
+Keys go by where they are on the keyboard, whatever your layout.
 
-| Port 1 | Key |
-|---|---|
-| Keypad 0 to 9, `*`, `#` | the same keys |
-| Up, Down, Left, Right | the arrow keys |
-| Left fire | <kbd>Left Ctrl</kbd> |
-| Right fire | <kbd>Left Alt</kbd> |
+Controller 1 has the arrow keys and the digit row, because that is where a
+one-player game looks. Controller 2 has no keypad: a keyboard has one set of
+digits, and the Controllers window covers the second controller's.
 
-| Port 2 | Key |
-|---|---|
-| Up, Left, Down, Right | <kbd>W</kbd> <kbd>A</kbd> <kbd>S</kbd> <kbd>D</kbd> |
-| Left fire | <kbd>Left Shift</kbd> |
-| Right fire | <kbd>Tab</kbd> |
+| Does | Controller 1 | Controller 2 |
+|---|---|---|
+| Keys 0 to 9 | <kbd>0</kbd> to <kbd>9</kbd> | none |
+| Key `*` | <kbd>Keypad</kbd> `*` | none |
+| Key `#` | <kbd>Keypad /</kbd> | none |
+| Up | <kbd>Up</kbd> | <kbd>W</kbd> |
+| Down | <kbd>Down</kbd> | <kbd>S</kbd> |
+| Left | <kbd>Left</kbd> | <kbd>A</kbd> |
+| Right | <kbd>Right</kbd> | <kbd>D</kbd> |
+| Left fire | <kbd>Left Ctrl</kbd> | <kbd>Left Shift</kbd> |
+| Right fire | <kbd>Left Alt</kbd> | <kbd>Tab</kbd> |
+
+The numeric keypad's digits dial too, with Num Lock on or off: where nothing
+is bound to a numeric-keypad digit, it presses the digit-row key of the same
+number.
 
 | Console | Key |
 |---|---|
@@ -143,7 +155,7 @@ The app keeps these keys for itself:
 
 <!-- only: gnome kde windows -->
 
-Keys held with <kbd>Ctrl</kbd> as a shortcut never reach the console.
+<kbd>Ctrl</kbd> is a machine key too (Controller 1's Left fire), so steering with it held reaches the console; only the shortcuts above are the app's.
 
 <!-- end -->
 
@@ -161,42 +173,104 @@ Key combinations with the Super (Windows) key are the desktop's.
 
 ## Swapping the fire buttons
 
-Preferences ▸ Machine ▸ **Swap controller buttons** swaps the left and right
-fire buttons on both ports, for games that expect the other way round.
+Preferences ▸ Input ▸ **Swap controller buttons** swaps the left and right
+fire buttons on both controllers, for games that expect the other way round.
 
 ## Gamepads
 
 Gamepads are picked up as they are plugged in, and can come and go at any
-time. The first drives port 1, the next port 2. A pad with no standard layout
-(a plain USB adapter) uses its raw buttons and hats; many report the D-pad as
-axes, and all four diagonals work. Preferences ▸ Host ▸ **Gamepads** turns
-gamepads off.
+time. The first drives Controller 1, the next Controller 2; a third drives
+nothing until one is unplugged. A message says which controller a gamepad
+took, and when one goes. Preferences ▸ Input and the Controllers window can
+fix which is which. A gamepad's controller is remembered between runs: plug it
+back in, or start the app again, and it gets its controller back.
+
+| Gamepad | Does |
+|---|---|
+| D-pad, or left stick | The stick |
+| South (A) | Left fire |
+| East (B) | Right fire |
+| West (X) | Key 1 |
+| North (Y) | Key 2 |
+| Left shoulder | Key `*` |
+| Right shoulder | Key `#` |
+
+The same buttons work on both controllers, for the gamepad that drives it.
+Start, Back, Guide, the stick buttons and the triggers are free to be given
+jobs. The left stick is an eight-way switch: it engages at half deflection
+and lets go below a third. A gamepad with no standard layout (a plain USB
+adapter) steers with its first stick or hat, and its buttons and hat
+directions can be given jobs in the same way.
 
 ## Changing the controls
 
 The controls are changed in the Controllers window (<kbd>F9</kbd>): click
-**Map**, click a control, then press the keyboard key to give it. The control's
-old key is taken from it. **Defaults** puts every control back. The map is kept
-in the settings, and only what differs from the defaults is written.
+**Map**, then click a control on the picture (38 in all: both controllers'
+twelve keys, four directions and two fire buttons, and the two Reset
+actions; a diagonal wedge is two directions at once, so it has no key of its
+own), then press the keyboard key or the gamepad button to give it. The
+control's old holder loses it, and the message names it. Map stays on, so
+several controls can be given in a row; <kbd>Escape</kbd> steps back one
+level and **Done** leaves Map.
 
-<!-- context: keypad -->
+- **Clear** takes the job off the key and the button of the control you
+  picked.
+- **Defaults** puts every control back (so does **Reset Controls** in
+  Preferences ▸ Input).
+- **Show bindings** writes each control's key on it.
+
+<!-- only: macos -->
+
+On a Mac a control can also be chosen from the list in the window, instead
+of clicking it on the picture.
+
+<!-- end -->
+
+A key drives one control; a gamepad button drives one control of each
+controller. <kbd>F9</kbd> and <kbd>F12</kbd> cannot be given away. The map is
+kept in the settings, and only what differs from the defaults is written;
+controls saved by earlier versions are carried over.
+
+<!-- context: controllers -->
 # Controllers window
 
-The Controllers window (<kbd>F9</kbd>) shows both hand controllers side by side:
-a 3 × 4 keypad, a four-way direction pad and the two fire buttons each, and
-presses them with the mouse. It stays hidden rather than closed, so a remap
-survives closing it.
+The Controllers window (<kbd>F9</kbd>) draws both hand controllers as a player
+sees them, Controller 1 on the left and Controller 2 on the right. It floats
+on its own at a fixed size, stays hidden until you ask for it and hides
+rather than closes. Each controller has:
+
+- **The stick**: a short disc with a ring of eight direction wedges.
+- **The fire buttons**, one on each side of the case.
+- **The keypad**: twelve keys, 1 to 9, `*`, 0 and `#`, on a silver card with
+  a slot at the top for a game's overlay (drawn only; nothing there is
+  pressed).
+
+The controls that are held light up in the accent colour, whoever holds them:
+the keyboard, a gamepad or the mouse. Under the controllers are the console's
+**Reset Console** and **Reset to CONFIG** buttons, then the row of **Map**,
+**Clear**, **Defaults** and **Show bindings**, and a row for each gamepad.
 
 | With the mouse | Does |
 |---|---|
-| Press a control | Holds it for as long as the button is down |
+| Press a key or a fire button | Holds it for as long as the button is down |
+| Press on a wedge | Holds that direction |
+| Drag from the stick | Tilts it (eight ways, nothing near the middle) |
 | Drag off a control | Lets it go |
+| Release on a Reset button | Runs it |
 
 The console reads its controllers once a frame, so a control is *held*, not
 pulsed, as the plastic one is: a value present for an instant falls between
-frames and a polling game would never see it. Keys typed in the Controllers
-window go to the console as well. **Map** and **Defaults** change the controls
-(see [Changing the controls](#changing-the-controls)).
+frames and a polling game would never see it. Switching to another window
+lets go of everything the mouse holds. Keys typed in the Controllers window
+go to the console as well.
+
+Each gamepad has a row with its name, the controller it drives and a choice
+of *Automatic*, *Controller 1* or *Controller 2*. The rows follow the
+gamepads as they come and go. **Map**, **Clear**, **Defaults** and **Show
+bindings** change the controls (see
+[Changing the controls](#changing-the-controls)); once Map has a
+control picked, the others are dimmed. Show bindings is remembered
+(setting `controllers_show_bindings`).
 
 # Machines
 
@@ -309,8 +383,9 @@ still shows the traffic.
 
 Preferences (<kbd>Ctrl+,</kbd>) set up the machine. The Machine and FujiNet
 settings apply by restarting the session when Preferences closes; an opened
-cartridge boots again. The Host settings apply at once. The settings are one
-file, shared by the GNOME and KDE apps on the computer.
+cartridge boots again. The Host settings apply at once, and the Input settings
+when Preferences closes. The settings are one file, shared by the GNOME and
+KDE apps on the computer.
 
 <!-- only: macos -->
 
@@ -320,8 +395,8 @@ On a Mac this window is called **Settings** (in the app menu).
 
 <!-- only: windows -->
 
-On Windows this window is called **Settings** (in the Machine menu). It is one
-window with the settings below in groups, the ROMs last.
+On Windows this window is called **Settings** (in the Machine menu). It has a
+tab for each group of settings below: Machine, Input and ROMs.
 
 <!-- end -->
 
@@ -332,8 +407,6 @@ window with the settings below in groups, the ROMs last.
   (setting `sgm`).
 - **Palette**: which TMS9928A colour set to render with: *Default (TMS9928A)*,
   *Palette 2*, *Palette 3* or *Palette 4* (setting `palette`).
-- **Swap controller buttons**: exchange the left and right fire buttons on both
-  ports (setting `swap_buttons`).
 
 ## FujiNet settings
 
@@ -348,7 +421,22 @@ window with the settings below in groups, the ROMs last.
 ## Host settings
 
 - **Audio**: open the system audio device (setting `enable_audio`).
-- **Gamepads**: poll USB and Bluetooth gamepads (setting `enable_gamepad`).
+
+<!-- context: prefs/Input -->
+## Input settings
+
+- **Enable gamepads**: poll USB and Bluetooth gamepads (setting
+  `enable_gamepad`).
+- **Swap controller buttons**: exchange the left and right fire buttons on
+  both controllers (setting `swap_buttons`).
+- **Gamepads**: each one plugged in, and which controller it drives. A new
+  gamepad drives Controller 1, the next Controller 2; choose *Controller 1* or
+  *Controller 2* to fix it, or *Automatic*. The choice is remembered between
+  runs (setting `pad_assign`), by the gamepad's id and name; two identical
+  gamepads cannot be told apart, so the first to connect gets it.
+- **Reset Controls**: put every key and gamepad button back to its default.
+- **Open Controllers**: open the Controllers window, where the controls are
+  changed (see [Changing the controls](#changing-the-controls)).
 
 <!-- context: prefs/ROMs -->
 ## ROMs settings
@@ -362,8 +450,10 @@ window with the settings below in groups, the ROMs last.
 
 The settings file is `settings.ini` (see [Files and folders](#files-and-folders)).
 Each setting above names its key. The others are `tv_aspect` and `smooth` (the
-View menu), `cart_path` (the opened cartridge, empty for CONFIG) and the
-`bind.` keys (the controls that differ from the defaults).
+View menu), `cart_path` (the opened cartridge, empty for CONFIG), `bindings` (only the
+controls that differ from the defaults), `pad_assign` (the gamepads kept on a
+controller) and `controllers_show_bindings` (the Controllers window's Show
+bindings).
 
 # Debugger
 
@@ -462,8 +552,13 @@ In the data folder:
 - **A game never sees the controller**: the controller is read once a frame; a
   control must be held, not tapped in an instant. The Controllers window holds
   a control as long as the button is down.
-- **A gamepad does nothing**: Gamepads may be off in Preferences, or its buttons
-  may be given other jobs.
+- **A gamepad does nothing**: Enable gamepads may be off in Preferences ▸
+  Input, a third gamepad drives nothing, or its buttons may be given other
+  jobs. The gamepad's row in the Controllers window shows which controller it
+  drives.
+- **A gamepad drives the wrong controller**: choose *Controller 1* or
+  *Controller 2* for it in Preferences ▸ Input or the Controllers window; the
+  choice is remembered.
 - **No sound**: Audio may be off in Preferences, or the audio device could not
   be opened.
 - **A port is taken**: another program is using 11502 or 11503. Close the other
