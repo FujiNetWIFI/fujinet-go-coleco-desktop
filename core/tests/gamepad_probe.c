@@ -37,7 +37,7 @@ int main(int argc, char **argv)
 {
     colecosession_paths paths;
     colecosession_start_opts opts;
-    colecosession *s;
+    colecosession *sess;
     char name[128] = "";
     uint16_t last[2] = { 0x7F7F, 0x7F7F };
     int seconds = argc > 1 ? atoi(argv[1]) : 20;
@@ -54,33 +54,33 @@ int main(int argc, char **argv)
 
     memset(&paths, 0, sizeof paths);
     paths.fujinet_lib = "";
-    s = colecosession_new(&paths);
-    if (!s) { fprintf(stderr, "session failed\n"); return 1; }
+    sess = colecosession_new(&paths);
+    if (!sess) { fprintf(stderr, "session failed\n"); return 1; }
 
-    colecosession_default_opts(s, &opts);
+    colecosession_default_opts(sess, &opts);
     opts.enable_fujinet = 0;
     opts.enable_audio = 0;
     opts.enable_gamepad = 1;
     opts.cart_path = NULL;
     /* No BIOS needed: the pad layer runs whether or not the machine booted,
      * and this is about the pad, not the emulator. */
-    if (colecosession_start(s, &opts) != 0)
+    if (colecosession_start(sess, &opts) != 0)
         fprintf(stderr, "note: machine did not start (%s) -- "
                         "the pad layer is still under test\n",
-                colecosession_last_error(s));
+                colecosession_last_error(sess));
 
     { struct timespec t = { 0, 300000000 }; nanosleep(&t, NULL); }
 
-    npads = colecosession_gamepad_count(s);
-    colecosession_gamepad_name(s, 0, name, sizeof name);
+    npads = colecosession_gamepad_count(sess);
+    colecosession_gamepad_name(sess, 0, name, sizeof name);
     printf("pads the session opened: %d\n", npads);
     printf("port 1: \"%s\"\n", name[0] ? name : "(none)");
     if (npads < 1) {
         fprintf(stderr, "\nNo pad. Either none is plugged in, or SDL has no "
                         "mapping for it (it would then be a joystick, not a "
                         "gamepad).\n");
-        colecosession_stop(s);
-        colecosession_free(s);
+        colecosession_stop(sess);
+        colecosession_free(sess);
         return 1;
     }
 
@@ -89,21 +89,21 @@ int main(int argc, char **argv)
 
     for (i = 0; i < seconds * 20; i++) {
         struct timespec t = { 0, 50000000 };
-        int p;
-        for (p = 0; p < 2; p++) {
-            const uint16_t w = colecosession_gamepad_last_state(s, p);
-            if (w != last[p]) {
+        int port;
+        for (port = 0; port < 2; port++) {
+            const uint16_t word = colecosession_controller_word(sess, port);
+            if (word != last[port]) {
                 char desc[96];
-                describe(w, desc, sizeof desc);
-                printf("  port %d  %04X  %s\n", p + 1, w, desc);
-                last[p] = w;
+                describe(word, desc, sizeof desc);
+                printf("  port %d  %04X  %s\n", port + 1, word, desc);
+                last[port] = word;
                 seen++;
-                if (!(w & 0x0100)) got_up = 1;
-                if (!(w & 0x0400)) got_down = 1;
-                if (!(w & 0x0800)) got_left = 1;
-                if (!(w & 0x0200)) got_right = 1;
-                if (!(w & 0x4000)) got_fl = 1;
-                if (!(w & 0x0040)) got_fr = 1;
+                if (!(word & 0x0100)) got_up = 1;
+                if (!(word & 0x0400)) got_down = 1;
+                if (!(word & 0x0800)) got_left = 1;
+                if (!(word & 0x0200)) got_right = 1;
+                if (!(word & 0x4000)) got_fl = 1;
+                if (!(word & 0x0040)) got_fr = 1;
                 fflush(stdout);
             }
         }
@@ -121,7 +121,7 @@ int main(int argc, char **argv)
     else
         printf("\ngamepad_probe: not everything was exercised (see above).\n");
 
-    colecosession_stop(s);
-    colecosession_free(s);
+    colecosession_stop(sess);
+    colecosession_free(sess);
     return 0;
 }

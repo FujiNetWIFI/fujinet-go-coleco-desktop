@@ -63,10 +63,9 @@ endif()
 
 # Our own core layer: the paced emulator thread and the frame slot.
 # host.c alone: the paced thread and the frame slot are machine, not
-# session. input_map.c used to live here too, but it now resolves keys
-# through the settings-backed binding table, which is squarely a session
-# concern -- so it moved to coleco_session with bindings.c rather than
-# dragging the settings store down into the core.
+# session. Input (input.c) resolves keys through the settings-backed binding
+# table, which is squarely a session concern, so it lives in coleco_session
+# with bindings.c rather than dragging the settings store down into the core.
 set(COLECO_HOST_SOURCES coleco/host.c)
 
 # The debugger engine. Same Z80 and same TMS9928A as the ADAM app, so its
@@ -81,8 +80,11 @@ set(COLECO_DEBUGGER_SOURCES
   debugger/symbols_builtin.c
   debugger/vdpview.c)
 
+# pad_assign.c is pure (no SDL, no session): the remembered pad -> port table.
+# It is in the core so its test links the core alone.
 set(COLECO_CORE_SOURCES ${COLECO_ADAMCORE_SOURCES} ${COLECO_FUJI_SOURCES}
-                        ${COLECO_HOST_SOURCES} ${COLECO_DEBUGGER_SOURCES})
+                        ${COLECO_HOST_SOURCES} ${COLECO_DEBUGGER_SOURCES}
+                        src/pad_assign.c)
 
 # The cart device needs adamcore's cartridge vtable, which lands upstream as
 # part of M1. Until the pin carries it the core still builds -- a plain
@@ -207,7 +209,9 @@ add_library(coleco_session STATIC
   src/roms.c
   src/zipread.c
   src/bindings.c
-  src/input_map.c
+  src/input.c
+  src/controls.c
+  src/hid_keys.c
   src/media.c
   src/audio_sdl.c
   src/gamepad_sdl.c

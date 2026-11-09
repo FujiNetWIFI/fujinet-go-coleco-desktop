@@ -29,6 +29,12 @@ target_link_libraries(boot_smoke coleco_core)
 add_test(NAME boot_smoke COMMAND boot_smoke "${CMAKE_SOURCE_DIR}/tools/roms")
 set_tests_properties(boot_smoke PROPERTIES SKIP_RETURN_CODE 77)
 
+# The remembered pad -> port table: pure, no SDL, no session.
+add_executable(pad_assign_test pad_assign_test.c)
+target_link_libraries(pad_assign_test coleco_core)
+target_include_directories(pad_assign_test PRIVATE "${CMAKE_SOURCE_DIR}/core/src")
+add_test(NAME pad_assign COMMAND pad_assign_test)
+
 # The key table, pinned to exact controller words.
 # These need the session layer, which needs SDL3. On a build without it
 # (a cross-toolchain, or a lean machine) the core's own tests still run.
@@ -38,12 +44,17 @@ add_executable(input_test input_test.c)
 target_link_libraries(input_test coleco_session)
 add_test(NAME input COMMAND input_test)
 
+# The on-screen controllers' layout, hit test and gesture maths.
+add_executable(controls_test controls_test.c)
+target_link_libraries(controls_test coleco_session)
+add_test(NAME controls COMMAND controls_test)
+
 # The frontend contract, against a real temporary XDG tree.
 add_executable(session_test session_test.c)
 target_link_libraries(session_test coleco_session)
 add_test(NAME session COMMAND session_test "${CMAKE_SOURCE_DIR}/tools/roms")
 
-# The remappable binding table and the panel's direct press path.
+# The remappable binding table, the key translator and the 0.9.0 migration.
 add_executable(bindings_test bindings_test.c)
 target_link_libraries(bindings_test coleco_session)
 add_test(NAME bindings COMMAND bindings_test)
@@ -97,17 +108,33 @@ add_test(NAME debug COMMAND debug_test "${CMAKE_SOURCE_DIR}/tools/roms")
 set_tests_properties(debug PROPERTIES SKIP_RETURN_CODE 77)
 
 
-# Interactive: needs a pad and a human. Built, never added as a ctest -- no CI
-# runner can press a button, and nothing automated can tell you whether a
-# given controller reports its d-pad as a hat, as buttons or as axes.
-# The non-interactive half of gamepad_probe: an SDL3 virtual pad, so it can
-# run in CI. SKIPs (77) on a runner with no gamepad subsystem.
+# The gamepad layer's pure helpers, and its start and stop with no hardware.
+add_executable(gamepad_test gamepad_test.c)
+target_link_libraries(gamepad_test coleco_session)
+target_include_directories(gamepad_test PRIVATE "${CMAKE_SOURCE_DIR}/core/src")
+add_test(NAME gamepad COMMAND gamepad_test)
+set_tests_properties(gamepad PROPERTIES SKIP_RETURN_CODE 77 TIMEOUT 60)
+
+# The gamepad layer end to end on SDL3 virtual joysticks (a gamepad and a raw
+# adapter), with no machine: runs in CI. SKIPs (77) on a runner with no
+# virtual joystick support. The waits poll with a ceiling, and a slow runner
+# is slow, so the timeout is generous.
 add_executable(gamepad_map_test gamepad_map_test.c)
 target_link_libraries(gamepad_map_test coleco_session)
 target_include_directories(gamepad_map_test PRIVATE "${CMAKE_SOURCE_DIR}/core/src")
 add_test(NAME gamepad_map COMMAND gamepad_map_test)
-set_tests_properties(gamepad_map PROPERTIES SKIP_RETURN_CODE 77)
+set_tests_properties(gamepad_map PROPERTIES SKIP_RETURN_CODE 77 TIMEOUT 60)
 
+# What a power cycle (Reset to CONFIG) keeps: the held keys and the pads.
+# Needs a real BIOS and SKIPs (77) without one, as on every CI checkout.
+add_executable(power_cycle_test power_cycle_test.c)
+target_link_libraries(power_cycle_test coleco_session)
+add_test(NAME power_cycle COMMAND power_cycle_test "${CMAKE_SOURCE_DIR}/tools/roms")
+set_tests_properties(power_cycle PROPERTIES SKIP_RETURN_CODE 77 TIMEOUT 60)
+
+# Interactive: needs a pad and a human. Built, never added as a ctest -- no CI
+# runner can press a button, and nothing automated can tell you whether a
+# given controller reports its d-pad as a hat, as buttons or as axes.
 add_executable(gamepad_probe gamepad_probe.c)
 target_link_libraries(gamepad_probe coleco_session)
 
@@ -121,7 +148,7 @@ if(WIN32)
   # cart_test is conditional on the ROMs being available, hence the guard.
   foreach(_t no_sdl_link_test cart_test fujitrace_test boot_smoke input_test
              session_test bindings_test roms_import_test media_test hostport_test external_test debug_test dasm_test
-             vdp_decode_test gamepad_map_test gamepad_probe)
+             vdp_decode_test pad_assign_test controls_test gamepad_test gamepad_map_test power_cycle_test gamepad_probe)
     if(TARGET ${_t})
       target_link_options(${_t} PRIVATE -static -static-libgcc -static-libstdc++)
     endif()

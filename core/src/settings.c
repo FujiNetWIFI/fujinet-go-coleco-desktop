@@ -43,28 +43,35 @@ static void set_locked(struct colecosession *s, const char *key, const char *val
     s->settings_dirty = 1;
 }
 
-void settings_init(struct colecosession *s)
+void settings_init(struct colecosession *sess)
 {
-    FILE *fp;
-    char line[1024];
+    FILE *file;
+    char line[16384];   /* pad_assign alone can run to several KB */
 
-    pthread_mutex_init(&s->settings_mtx, NULL);
-    fp = fopen(s->settings_file, "r");
-    if (!fp) return;
-    while (fgets(line, sizeof(line), fp)) {
-        char *eq, *end;
-        char *p = line;
-        while (*p == ' ' || *p == '\t') p++;
-        if (*p == '#' || *p == '\n' || *p == '\0') continue;
-        eq = strchr(p, '=');
-        if (!eq) continue;
-        *eq = '\0';
-        end = eq + 1 + strcspn(eq + 1, "\r\n");
+    pthread_mutex_init(&sess->settings_mtx, NULL);
+    file = fopen(sess->settings_file, "r");
+    if (!file) return;
+    while (fgets(line, sizeof(line), file)) {
+        char *equals, *end;
+        char *cursor = line;
+        if (!strchr(line, '\n') && !feof(file)) {
+            /* longer than any value we write: drop the line whole rather
+             * than parse its tail as another setting */
+            int chr;
+            while ((chr = fgetc(file)) != EOF && chr != '\n') {}
+            continue;
+        }
+        while (*cursor == ' ' || *cursor == '\t') cursor++;
+        if (*cursor == '#' || *cursor == '\n' || *cursor == '\0') continue;
+        equals = strchr(cursor, '=');
+        if (!equals) continue;
+        *equals = '\0';
+        end = equals + 1 + strcspn(equals + 1, "\r\n");
         *end = '\0';
-        set_locked(s, p, eq + 1);
+        set_locked(sess, cursor, equals + 1);
     }
-    fclose(fp);
-    s->settings_dirty = 0;
+    fclose(file);
+    sess->settings_dirty = 0;
 }
 
 void settings_free_all(struct colecosession *s)

@@ -1,6 +1,7 @@
 /*
- * colecosession's private state. Not installed; only session.c, settings.c,
- * paths.c and roms.c include it.
+ * colecosession's private state. Not installed; the session's own modules
+ * (session, settings, paths, roms, input, bindings, gamepad_sdl) and the tests
+ * that drive them without a machine include it.
  *
  * Copyright (C) 2026 Thomas Cherryhomes
  * SPDX-License-Identifier: GPL-3.0-or-later
@@ -54,14 +55,32 @@ struct colecosession {
      * table; kept so a reset/reload need not re-read it */
     uint8_t *bios;            /* COLECO_BIOS_SIZE bytes, or NULL */
 
-    /* The on-screen keypad's own held-key set, kept separate from the
-     * frontend's keyboard state so a button held with the mouse and a key
-     * held on the keyboard cannot clear each other. */
-    coleco_input_state panel_input;
+    /* What drives each controller action, one bit per source (SRC_*), so
+     * letting go of one source never releases another's. input_mtx covers
+     * these, held_keysym, host_word and the calls that hand the merged word
+     * to the machine; it is a leaf lock. */
+    pthread_mutex_t input_mtx;
+    uint32_t pad_src[COLECO_PORTS][COLECO_ACT_PER_PORT];
+    /* keys the keyboard currently holds, by target (the keysym it was pressed
+     * as), so a release clears exactly what its press asserted even if the
+     * binding changed meanwhile */
+    uint32_t held_keysym[COLECO_TARGET_COUNT];
+    uint16_t host_word[COLECO_PORTS];   /* what was last pushed to the machine */
+    int keep_input;           /* a power cycle in progress: input_clear is skipped */
 
     void *audio;              /* audio_sdl.c state, NULL until started */
     void *gamepad;            /* gamepad_sdl.c state, NULL until started */
     int running;
+
+    /* the pad generation, carried across gamepad_stop/start so a restart of
+     * the session never replays an old toast */
+    unsigned pad_gen_base;
+    /* a pad thread has run before: its first scan finds the same pads again,
+     * which is no hot-plug (no toast, no generation change) */
+    int pad_restarted;
+    /* the last gamepad hot-plug event, for a frontend toast */
+    pthread_mutex_t pad_event_mtx;
+    char pad_event[128];
 };
 
 void settings_init(struct colecosession *s);
@@ -97,15 +116,51 @@ int roms_any_available(const struct colecosession *s);
 /* Materialise any embedded BIOS into the ROM directory on first run. */
 void roms_provision_embedded(struct colecosession *s);
 
-/* bindings.c -- the reverse lookup the key handler uses. */
-int coleco_binding_target_for_key(uint32_t keysym);
+/* Who is holding an input down (the bits of pad_src): the keyboard, the
+ * window's mouse, and for each gamepad (by the stable owner number its slot
+ * was given, 0 to COLECO_MAX_PADS - 1) its buttons and its stick / hat
+ * separately. So letting go of one never releases another, even two pads or
+ * two buttons bound to the one key. */
+#define COLECO_MAX_PADS 8
+#define SRC_KEYBOARD 1u
+#define SRC_PAD(owner)   (1u << (1 + (owner)))
+#define SRC_STICK(owner) (1u << (1 + COLECO_MAX_PADS + (owner)))
+#define SRC_POINTER  (1u << (1 + 2 * COLECO_MAX_PADS))
+
+/* bindings.c: seeds the table (defaults, then the "bindings" setting, with
+ * the 0.9.0 per-target "bind.N" keys migrated once). bindings_shutdown lets go
+ * of the session before it is freed. */
+void bindings_init(struct colecosession *sess);
+void bindings_shutdown(struct colecosession *sess);
+/* The targets a (case-folded) keysym is bound to, the Keypad fallback applied
+ * when none is; returns how many were written to `out` (at most `max`). */
+int  bindings_targets_for_key(uint32_t keysym, int *out, int max);
+uint32_t bindings_fold_key(uint32_t keysym);
+
+/* input.c */
+void input_init(struct colecosession *sess);
+/* Let go of every source and tell the machine (a start). */
+void input_clear(struct colecosession *sess);
+/* A power cycle made a new machine (idle 0x7F7F): hand it what is held. */
+void input_after_power_cycle(struct colecosession *sess);
+/* The keyboard asserts one target as the key `pressed` (ignoring a repeat) /
+ * releases everything that key asserted, returning how many it let go. */
+void input_key_hold(struct colecosession *sess, int target, uint32_t pressed);
+int  input_key_release(struct colecosession *sess, uint32_t pressed);
 
 /* audio_sdl.c */
 int  audio_start(struct colecosession *s);
 void audio_stop(struct colecosession *s);
 
 /* gamepad_sdl.c */
-int  gamepad_start(struct colecosession *s);
-void gamepad_stop(struct colecosession *s);
+int  gamepad_start(struct colecosession *sess);
+void gamepad_stop(struct colecosession *sess);
+/* Called by the gamepad thread for the pad that owns `owner`. press: a pad
+ * button drives a controller target -- the pad's SRC_PAD source. stick: an
+ * analog stick or hat drives a direction -- its SRC_STICK source. */
+void session_gamepad_press(struct colecosession *sess, int owner, int target, int down);
+void session_gamepad_stick(struct colecosession *sess, int owner, int port, int act, int down);
+/* Called by the gamepad thread on a connect/disconnect. */
+void session_gamepad_event(struct colecosession *sess, const char *text);
 
 #endif /* COLECO_SESSION_INTERNAL_H */

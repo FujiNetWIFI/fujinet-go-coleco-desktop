@@ -22,47 +22,72 @@ void session_set_error(struct colecosession *s, const char *fmt, ...)
     va_end(ap);
 }
 
+/* The last gamepad hot-plug event, for a frontend's toast. */
+void session_gamepad_event(struct colecosession *sess, const char *text)
+{
+    pthread_mutex_lock(&sess->pad_event_mtx);
+    snprintf(sess->pad_event, sizeof sess->pad_event, "%s", text ? text : "");
+    pthread_mutex_unlock(&sess->pad_event_mtx);
+}
+
+int colecosession_gamepad_last_event(colecosession *sess, char *dst, int dstsz)
+{
+    int num;
+    if (!dst || dstsz <= 0)
+        return 0;
+    pthread_mutex_lock(&sess->pad_event_mtx);
+    num = snprintf(dst, (size_t)dstsz, "%s", sess->pad_event);
+    pthread_mutex_unlock(&sess->pad_event_mtx);
+    return num;
+}
+
 /* ---- lifecycle ------------------------------------------------------------ */
 
 colecosession *colecosession_new(const colecosession_paths *paths)
 {
-    struct colecosession *s = calloc(1, sizeof *s);
-    if (!s) return NULL;
+    struct colecosession *sess = calloc(1, sizeof *sess);
+    if (!sess) return NULL;
 
-    pthread_mutex_init(&s->settings_mtx, NULL);
-    pthread_mutex_init(&s->sysact_mtx, NULL);
+    pthread_mutex_init(&sess->settings_mtx, NULL);
+    pthread_mutex_init(&sess->sysact_mtx, NULL);
+    pthread_mutex_init(&sess->input_mtx, NULL);
+    pthread_mutex_init(&sess->pad_event_mtx, NULL);
+    input_init(sess);
 
-    if (paths_init(s, paths ? paths->config_dir : NULL,
+    if (paths_init(sess, paths ? paths->config_dir : NULL,
                    paths ? paths->data_dir : NULL) != 0) {
-        colecosession_free(s);
+        colecosession_free(sess);
         return NULL;
     }
-    settings_init(s);
-    coleco_bindings_load(s);
-    coleco_input_reset(&s->panel_input);
-    roms_provision_embedded(s);
+    settings_init(sess);
+    bindings_init(sess);
+    roms_provision_embedded(sess);
 
-    snprintf(s->boip_hostport, sizeof s->boip_hostport, "127.0.0.1:%d",
+    snprintf(sess->boip_hostport, sizeof sess->boip_hostport, "127.0.0.1:%d",
              COLECOSESSION_BOIP_PORT);
-    snprintf(s->webui_url, sizeof s->webui_url, "http://127.0.0.1:%d/",
+    snprintf(sess->webui_url, sizeof sess->webui_url, "http://127.0.0.1:%d/",
              COLECOSESSION_WEBUI_PORT);
 
     if (paths && paths->fujinet_lib)
-        snprintf(s->fujinet_lib, sizeof s->fujinet_lib, "%s",
+        snprintf(sess->fujinet_lib, sizeof sess->fujinet_lib, "%s",
                  paths->fujinet_lib);
-    return s;
+    return sess;
 }
 
-void colecosession_free(colecosession *s)
+void colecosession_free(colecosession *sess)
 {
-    if (!s) return;
-    colecosession_stop(s);
-    colecosession_settings_flush(s);
-    settings_free_all(s);
-    free(s->bios);
-    pthread_mutex_destroy(&s->settings_mtx);
-    pthread_mutex_destroy(&s->sysact_mtx);
-    free(s);
+    if (!sess) return;
+    colecosession_stop(sess);
+    gamepad_stop(sess);      /* a session that never started a machine may still have pads */
+    bindings_shutdown(sess);
+    colecosession_settings_flush(sess);
+    settings_free_all(sess);
+    free(sess->bios);
+    pthread_mutex_destroy(&sess->settings_mtx);
+    pthread_mutex_destroy(&sess->sysact_mtx);
+    pthread_mutex_destroy(&sess->input_mtx);
+    pthread_mutex_destroy(&sess->pad_event_mtx);
+    free(sess);
 }
 
 void colecosession_default_opts(colecosession *s, colecosession_start_opts *opts)
@@ -108,7 +133,7 @@ static uint8_t *read_file(const char *path, uint32_t *size_out)
     return buf;
 }
 
-int colecosession_start(colecosession *s, const colecosession_start_opts *opts)
+int colecosession_start(colecosession *sess, const colecosession_start_opts *opts)
 {
     colecosession_start_opts local;
     coleco_host_opts hopts;
@@ -116,22 +141,22 @@ int colecosession_start(colecosession *s, const colecosession_start_opts *opts)
     uint32_t cart_size = 0;
     int rc;
 
-    if (s->running) return 0;
-    s->last_error[0] = '\0';
+    if (sess->running) return 0;
+    sess->last_error[0] = '\0';
 
     if (!opts) {
-        colecosession_default_opts(s, &local);
+        colecosession_default_opts(sess, &local);
         opts = &local;
     }
 
-    free(s->bios);
-    s->bios = roms_load_bios(s);
-    if (!s->bios) return -1; /* roms_load_bios set the error */
+    free(sess->bios);
+    sess->bios = roms_load_bios(sess);
+    if (!sess->bios) return -1; /* roms_load_bios set the error */
 
     if (opts->cart_path && opts->cart_path[0]) {
         cart = read_file(opts->cart_path, &cart_size);
         if (!cart) {
-            session_set_error(s, "Cannot read cartridge %s", opts->cart_path);
+            session_set_error(sess, "Cannot read cartridge %s", opts->cart_path);
             return -1;
         }
     }
@@ -146,8 +171,8 @@ int colecosession_start(colecosession *s, const colecosession_start_opts *opts)
      * A FujiNet that fails to start is NOT fatal. The machine boots with the
      * mailbox reporting the link down, the CONFIG client says so on screen,
      * and the user can still run cartridges -- far better than refusing. */
-    s->fujinet_external = 0;
-    snprintf(s->boip_hostport, sizeof s->boip_hostport, "127.0.0.1:%d",
+    sess->fujinet_external = 0;
+    snprintf(sess->boip_hostport, sizeof sess->boip_hostport, "127.0.0.1:%d",
              COLECOSESSION_BOIP_PORT);
     if (opts->external_fujinet) {
         /* Someone else's FujiNet: dial the address the settings name, and
@@ -158,23 +183,23 @@ int colecosession_start(colecosession *s, const colecosession_start_opts *opts)
 
         if (colecosession_parse_hostport(opts->boip_connect, host, sizeof host,
                                          &port) != 0) {
-            session_set_error(s, "\"%s\" is not an address:port for the "
+            session_set_error(sess, "\"%s\" is not an address:port for the "
                               "external FujiNet (example: 127.0.0.1:%d)",
                               opts->boip_connect ? opts->boip_connect : "",
                               COLECOSESSION_BOIP_PORT);
             free(cart);
             return -1;
         }
-        s->fujinet_external = 1;
-        snprintf(s->boip_hostport, sizeof s->boip_hostport, "%s:%d", host,
+        sess->fujinet_external = 1;
+        snprintf(sess->boip_hostport, sizeof sess->boip_hostport, "%s:%d", host,
                  port);
     } else if (opts->enable_fujinet) {
-        if (fujinet_start(s) == 0)
-            fujinet_wait_for_boip(s, 3000);
+        if (fujinet_start(sess) == 0)
+            fujinet_wait_for_boip(sess, 3000);
     }
 
     memset(&hopts, 0, sizeof hopts);
-    hopts.os7 = s->bios;
+    hopts.os7 = sess->bios;
     hopts.cart = cart;
     hopts.cart_size = cart_size;
     hopts.sgm = opts->sgm;
@@ -182,49 +207,71 @@ int colecosession_start(colecosession *s, const colecosession_start_opts *opts)
     hopts.swap_buttons = opts->swap_buttons;
     hopts.audio_rate = COLECOSESSION_AUDIO_RATE;
     /* "" means no cartridge device at all -- a bare ColecoVision. */
-    hopts.fujinet_hostport = (opts->enable_fujinet || s->fujinet_external)
-                                 ? s->boip_hostport : "";
+    hopts.fujinet_hostport = (opts->enable_fujinet || sess->fujinet_external)
+                                 ? sess->boip_hostport : "";
 
     /* The debugger's FujiNet trace records from the first transaction, open
      * or not: creating the engine installs its tap before the machine runs. */
-    (void)colecosession_debugger(s);
+    (void)colecosession_debugger(sess);
 
+    /* nothing is held in a new machine, unless this is a power cycle (Reset
+     * to CONFIG), in which the keyboard and the pads carry on holding */
+    if (!sess->keep_input)
+        input_clear(sess);
+
+    /* the pad thread may be alive across a power cycle and pushes words into
+     * the machine under input_mtx, so the machine comes and goes under it */
+    pthread_mutex_lock(&sess->input_mtx);
     rc = coleco_host_start(&hopts);
+    pthread_mutex_unlock(&sess->input_mtx);
     free(cart);
     if (rc != 0) {
-        session_set_error(s, "%s", coleco_host_last_error());
-        fujinet_stop(s);
+        session_set_error(sess, "%s", coleco_host_last_error());
+        fujinet_stop(sess);
         return -1;
     }
+    /* the new machine starts idle: hand it whatever is still held */
+    input_after_power_cycle(sess);
 
-    if (opts->enable_gamepad && gamepad_start(s) != 0) {
+    if (opts->enable_gamepad && gamepad_start(sess) != 0) {
         /* A gamepad is a convenience; the keyboard and the on-screen panel
          * still work. Note it and carry on. */
-        fprintf(stderr, "coleco: gamepads unavailable (%s)\n", s->last_error);
-        s->last_error[0] = '\0';
+        fprintf(stderr, "coleco: gamepads unavailable (%s)\n", sess->last_error);
+        sess->last_error[0] = '\0';
     }
 
-    if (opts->enable_audio && audio_start(s) != 0) {
+    if (opts->enable_audio && audio_start(sess) != 0) {
         /* Audio is a convenience, not the machine. Note it and carry on
          * rather than refusing to run on a box with no sound device. */
         fprintf(stderr, "coleco: audio unavailable (%s); continuing silent\n",
-                s->last_error);
-        s->last_error[0] = '\0';
+                sess->last_error);
+        sess->last_error[0] = '\0';
     }
 
-    s->running = 1;
+    sess->running = 1;
     return 0;
 }
 
-void colecosession_stop(colecosession *s)
+/* Stops the machine, FujiNet and audio. The gamepad thread too, unless
+ * keep_pads: a power cycle (Reset to CONFIG) must not make every pad
+ * "reconnect" or lose its place in the connection order. */
+static void halt(colecosession *sess, int keep_pads)
 {
-    if (!s->running) return;
-    audio_stop(s);
-    gamepad_stop(s);
+    if (!sess->running) return;
+    audio_stop(sess);
+    if (!keep_pads)
+        gamepad_stop(sess);
+    pthread_mutex_lock(&sess->input_mtx);   /* see colecosession_start */
     coleco_host_stop();
-    fujinet_stop(s);
-    s->fujinet_external = 0;
-    s->running = 0;
+    pthread_mutex_unlock(&sess->input_mtx);
+    fujinet_stop(sess);
+    sess->fujinet_external = 0;
+    sess->running = 0;
+}
+
+void colecosession_stop(colecosession *sess)
+{
+    halt(sess, 0);
 }
 
 int colecosession_is_running(const colecosession *s) { return s->running; }
@@ -266,52 +313,37 @@ int colecosession_render_audio(colecosession *s, int16_t *out, int nsamples)
     return coleco_host_render_audio(out, nsamples);
 }
 
-void colecosession_joystick_raw(colecosession *s, int port, uint16_t state)
-{
-    (void)s;
-    coleco_host_joystick(port, state);
-}
-
 void colecosession_reset(colecosession *s)
 {
     (void)s;
     coleco_host_reset();
 }
 
-void colecosession_reset_to_config(colecosession *s)
+void colecosession_reset_to_config(colecosession *sess)
 {
-    colecosession_start_opts o;
+    colecosession_start_opts startopts;
 
-    if (!s->running) return;
+    if (!sess->running) return;
     /* A full restart with no cartridge image, so the device serves the
      * CONFIG client again. A plain reset cannot do this: the cartridge never
      * sees the console's reset line, which is the whole point of
      * adamcore_cart_ops' power-on-only reset -- after a network boot the
      * swapped-in game is what the cartridge is serving, and only rebuilding
      * the cartridge puts CONFIG back. On hardware this is a power cycle. */
-    colecosession_default_opts(s, &o);
-    o.cart_path = NULL;
-    colecosession_stop(s);
-    if (colecosession_start(s, &o) != 0)
-        fprintf(stderr, "coleco: reset to CONFIG failed: %s\n", s->last_error);
+    colecosession_default_opts(sess, &startopts);
+    startopts.cart_path = NULL;
+    halt(sess, 1);
+    sess->keep_input = 1;
+    if (colecosession_start(sess, &startopts) != 0)
+        fprintf(stderr, "coleco: reset to CONFIG failed: %s\n", sess->last_error);
+    sess->keep_input = 0;
 }
 
-/* The on-screen keypad window presses controls directly rather than
- * synthesising keystrokes -- a button on screen is a button, and routing it
- * through the key table would mean it stopped working the moment someone
- * remapped the key it was pretending to be. */
-void colecosession_press(colecosession *s, int port, int act, int down)
-{
-    coleco_input_apply(&s->panel_input, port, act, down);
-    colecosession_joystick_raw(s, port,
-                               coleco_input_word(&s->panel_input, port));
-}
-
-void colecosession_sysaction(colecosession *s, int sysact)
+void colecosession_sysaction(colecosession *sess, int sysact)
 {
     switch (sysact) {
-    case COLECO_SYSACT_RESET: colecosession_reset(s); break;
-    case COLECO_SYSACT_RESET_CONFIG: colecosession_reset_to_config(s); break;
+    case COLECO_SYSACT_RESET: colecosession_reset(sess); break;
+    case COLECO_SYSACT_RESET_CONFIG: colecosession_reset_to_config(sess); break;
     default: break;
     }
 }
