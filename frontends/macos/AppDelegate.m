@@ -9,67 +9,76 @@
 
 #import "ColecoKeyForward.h"
 #import "DisplayView.h"
+#import "controllers/ControllersWindow.h"
 #import "debugger/DebuggerWindow.h"
 #import "help/HelpWindow.h"
-#import "keypad/KeypadWindow.h"
 
+#include <stdlib.h>
 #include <string.h>
 
-/* The content view sits between AppKit and the session: it owns the held-key
- * set and forwards. Keeping it here rather than in DisplayView leaves the
- * display purely about pixels. */
+/* How long a gamepad connect/disconnect or reset message stays over the
+ * picture. */
+#define TOAST_SECONDS 3.0
+
+static NSString *nsstr(const char *text)
+{
+    NSString *res = text ? [NSString stringWithUTF8String:text] : nil;
+    return res ? res : @"";
+}
+
+@class ColecoAppDelegate;
+
+/* The Help topic of each Settings page, in tab order. */
+static NSString *const kPageContexts[3] = { @"prefs/Machine", @"prefs/Input", @"prefs/ROMs" };
+
+/* The content view sits between AppKit and the session: it forwards keys to
+ * it. Keeping it here rather than in DisplayView leaves the display purely
+ * about pixels. */
 @interface ColecoContentView : NSView
 @property (nonatomic) colecosession *session;
+@property (nonatomic, weak) ColecoAppDelegate *owner;
 @end
 
-@implementation ColecoContentView {
-    coleco_input_state _keys;
-}
+@interface ColecoAppDelegate () <NSTabViewDelegate>
+- (BOOL)handleAppKey:(uint32_t)keysym;
+- (void)runSysaction:(int)sysact;
+@end
+
+@implementation ColecoContentView
 
 - (BOOL)acceptsFirstResponder { return YES; }
 
-- (void)pushInput
+- (void)keyDown:(NSEvent *)evt
 {
-    /* Push both ports every time: the controller word is a snapshot of
-     * everything held, so sending only the port that changed would be an
-     * optimisation with a bug in it the first time keys on both are down. */
-    colecosession_joystick_raw(self.session, 0, coleco_input_word(&_keys, 0));
-    colecosession_joystick_raw(self.session, 1, coleco_input_word(&_keys, 1));
+    if ([evt isARepeat]) return;
+    /* Command shortcuts are the menus'. One no menu claims still arrives
+     * here, but AppKit sends no keyUp while Command is down, so forwarding it
+     * would leave the machine holding the key. */
+    if ([evt modifierFlags] & NSEventModifierFlagCommand) return;
+    const uint32_t keysym = ColecoKeysymFromEvent(evt);
+    if (!keysym) return;
+    /* F9, F12 and a key bound to a console action are the app's, on the
+     * leading edge only (repeats were dropped above) */
+    if ([self.owner handleAppKey:keysym]) return;
+    colecosession_key(self.session, keysym, 1);
 }
 
-- (void)keyDown:(NSEvent *)e
+- (void)keyUp:(NSEvent *)evt
 {
-    if ([e isARepeat]) return;
-    const uint32_t ks = ColecoKeysymFromEvent(e);
-    if (!ks) return;
-
-    const int sa = coleco_input_key_sysaction(ks);
-    if (sa >= 0) { colecosession_sysaction(self.session, sa); return; }
-    if (coleco_input_key(&_keys, ks, 1)) [self pushInput];
-}
-
-- (void)keyUp:(NSEvent *)e
-{
-    const uint32_t ks = ColecoKeysymFromEvent(e);
-    if (ks && coleco_input_key(&_keys, ks, 0)) [self pushInput];
+    const uint32_t keysym = ColecoKeysymFromEvent(evt);
+    if (keysym) colecosession_key(self.session, keysym, 0);
 }
 
 /* Modifier keys arrive as flagsChanged, not keyDown/keyUp, and both fire
  * buttons are modifiers in the default bindings -- so without this the
  * machine never sees a shot fired from the keyboard. */
-- (void)flagsChanged:(NSEvent *)e
+- (void)flagsChanged:(NSEvent *)evt
 {
-    const NSEventModifierFlags f = [e modifierFlags];
-    coleco_input_key(&_keys, 0xFFE3, (f & NSEventModifierFlagControl) ? 1 : 0);
-    coleco_input_key(&_keys, 0xFFE9, (f & NSEventModifierFlagOption) ? 1 : 0);
-    coleco_input_key(&_keys, 0xFFE1, (f & NSEventModifierFlagShift) ? 1 : 0);
-    [self pushInput];
-}
-
-- (void)releaseAll
-{
-    coleco_input_reset(&_keys);
-    [self pushInput];
+    int down = 0;
+    const uint32_t keysym = ColecoKeysymFromFlagsChange(evt, &down);
+    if (!keysym) return;
+    if (down && [self.owner handleAppKey:keysym]) return;
+    colecosession_key(self.session, keysym, down);
 }
 @end
 
@@ -85,6 +94,17 @@
     NSTextField *_externalField;
     NSTextField *_biosState;   /* the Settings ROMs row; nil until opened */
     BOOL _sessionDirty;
+    NSPopUpButton *_padList;   /* the Settings Input page's pad and its port */
+    NSPopUpButton *_padPort;
+    NSTimer *_padTimer;
+    unsigned _padListGeneration;
+
+    ColecoControllersWindow *_controllers;
+    NSTimer *_sysactTimer;
+    /* the transient message over the picture */
+    NSTextField *_toast;
+    unsigned _toastGeneration;
+    NSUInteger _toastSerial;
     NSWindow *_logWindow;
     NSTextView *_logView;
     NSTimer *_logTimer;
@@ -117,7 +137,11 @@
     _content = [[ColecoContentView alloc]
         initWithFrame:[[_window contentView] bounds]];
     _content.session = _session;
+    _content.owner = self;
     [_content setAutoresizingMask:NSViewWidthSizable | NSViewHeightSizable];
+    /* layer-backed, so the display's layer and the toast over it composite in
+     * the order they were added */
+    [_content setWantsLayer:YES];
 
     _display = [[ColecoDisplayView alloc] initWithSession:_session];
     [_display setFrame:[_content bounds]];
@@ -126,12 +150,31 @@
     [_display setSmooth:colecosession_get_int(_session, "smooth", 0) != 0];
     [_content addSubview:_display];
 
+    /* The toast: a label over the top of the picture that fades. */
+    _toast = [NSTextField labelWithString:@""];
+    _toast.font = [NSFont boldSystemFontOfSize:13];
+    _toast.textColor = NSColor.whiteColor;
+    _toast.drawsBackground = YES;
+    _toast.backgroundColor = [NSColor colorWithWhite:0.0 alpha:0.7];
+    _toast.alignment = NSTextAlignmentCenter;
+    _toast.alphaValue = 0.0;
+    [_toast setFrame:NSMakeRect(0, [_content bounds].size.height - 34, [_content bounds].size.width, 26)];
+    [_toast setAutoresizingMask:NSViewWidthSizable | NSViewMinYMargin];
+    [_content addSubview:_toast];
+
     [_window setContentView:_content];
     [self buildMenu];
     [_window makeKeyAndOrderFront:nil];
     [_window makeFirstResponder:_content];
     [_window setDelegate:self];
     [_window registerForDraggedTypes:@[NSPasteboardTypeFileURL]];
+
+    __weak ColecoAppDelegate *weakDelegate = self;
+    _controllers = [[ColecoControllersWindow alloc] initWithSession:_session
+                                                           appKeys:^BOOL(uint32_t keysym) {
+        return [weakDelegate handleAppKey:keysym];
+    }];
+    _controllers.sysactionHandler = ^(int sysact) { [weakDelegate runSysaction:sysact]; };
 
     colecosession_start_opts opts;
     colecosession_default_opts(_session, &opts);
@@ -144,16 +187,87 @@
                                  colecosession_last_error(_session)]];
     }
 
+    /* No toast for the pads already attached at launch. */
+    _toastGeneration = colecosession_gamepad_generation(_session);
+
     /* The family's launch hooks, for when the app misbehaves before a menu
-     * is reachable. */
-    if (getenv("COLECO_OPEN_KEYPAD"))
-        [ColecoKeypadWindow toggleWithSession:_session];
+     * is reachable (the old keypad name still works). */
+    if (getenv("COLECO_OPEN_CONTROLLERS") || getenv("COLECO_OPEN_KEYPAD"))
+        [_controllers toggle];
     if (getenv("COLECO_OPEN_DEBUGGER"))
         [DebuggerWindow showForSession:_session];
 
+    __weak ColecoAppDelegate *weakSelf = self;
     _statusTimer = [NSTimer scheduledTimerWithTimeInterval:1.0
-        repeats:YES block:^(NSTimer *t) { (void)t; [self updateTitle]; }];
+        repeats:YES block:^(NSTimer *tmr) { (void)tmr; [weakSelf updateTitle]; }];
+    /* System actions the gamepad thread resolved (it cannot touch AppKit) and
+     * gamepads coming and going: well inside 50 ms. */
+    _sysactTimer = [NSTimer scheduledTimerWithTimeInterval:0.05
+        repeats:YES block:^(NSTimer *tmr) { (void)tmr; [weakSelf sysactTick]; }];
+    _sysactTimer.tolerance = 0.01;
     [self updateTitle];
+}
+
+/* What the 50 ms timer does: the console actions a gamepad button posted, and
+ * a toast when a gamepad came or went. */
+- (void)sysactTick
+{
+    int sysact;
+    while (colecosession_sysaction_take(_session, &sysact)) [self runSysaction:sysact];
+    const unsigned gen = colecosession_gamepad_generation(_session);
+    if (gen != _toastGeneration) {
+        _toastGeneration = gen;
+        char msg[160];
+        if (colecosession_gamepad_last_event(_session, msg, (int)sizeof msg) > 0)
+            [self showToast:nsstr(msg)];
+    }
+}
+
+- (void)showToast:(NSString *)text
+{
+    if (!text) return;
+    _toast.stringValue = text;
+    _toast.alphaValue = 1.0;
+    const NSUInteger serial = ++_toastSerial;
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(TOAST_SECONDS * NSEC_PER_SEC)),
+                   dispatch_get_main_queue(), ^{
+        /* a newer message restarts the clock */
+        if (serial != self->_toastSerial) return;
+        [NSAnimationContext runAnimationGroup:^(NSAnimationContext *ctx) {
+            ctx.duration = 0.5;
+            self->_toast.animator.alphaValue = 0.0;
+        } completionHandler:nil];
+    });
+}
+
+/* A console action (COLECO_SYSACT_*) run on the UI thread, from a key, a
+ * gamepad button, the strip or a menu item. */
+- (void)runSysaction:(int)sysact
+{
+    switch (sysact) {
+    case COLECO_SYSACT_RESET:
+        colecosession_sysaction(_session, sysact);
+        [self showToast:@"Console reset"];
+        break;
+    case COLECO_SYSACT_RESET_CONFIG:
+        colecosession_sysaction(_session, sysact);
+        [self showToast:@"Back to the FujiNet CONFIG client"];
+        break;
+    default:
+        break;
+    }
+    [self updateTitle];
+}
+
+/* F9 and F12 are the app's, not bindable; then a key bound to a console
+ * action. YES when taken. */
+- (BOOL)handleAppKey:(uint32_t)keysym
+{
+    if (keysym == COLECOSESSION_KEYSYM_F9) { [_controllers toggle]; return YES; }
+    if (keysym == COLECOSESSION_KEYSYM_F12) { [DebuggerWindow showForSession:_session]; return YES; }
+    const int sysact = colecosession_key_sysaction(_session, keysym);
+    if (sysact >= 0) { [self runSysaction:sysact]; return YES; }
+    return NO;
 }
 
 - (void)updateTitle
@@ -173,8 +287,7 @@
  * still down. */
 - (void)windowDidResignKey:(NSNotification *)note
 {
-    (void)note;
-    [_content releaseAll];
+    if (note.object == _window) colecosession_release_all(_session);
 }
 
 - (BOOL)applicationShouldTerminateAfterLastWindowClosed:(NSApplication *)app
@@ -187,6 +300,8 @@
 {
     (void)note;
     [_statusTimer invalidate];
+    [_sysactTimer invalidate];
+    [_padTimer invalidate];
     [_display stop];
     colecosession_stop(_session);
     colecosession_free(_session);
@@ -235,7 +350,7 @@
 
     NSMenuItem *viewItem = [[NSMenuItem alloc] init];
     NSMenu *view = [[NSMenu alloc] initWithTitle:@"View"];
-    [[view addItemWithTitle:@"Controllers" action:@selector(toggleKeypad:)
+    [[view addItemWithTitle:@"Controllers (F9)" action:@selector(toggleControllers:)
               keyEquivalent:@"k"] setTarget:self];
     [[view addItemWithTitle:@"Debugger" action:@selector(showDebugger:)
               keyEquivalent:@"d"] setTarget:self];
@@ -321,7 +436,12 @@
 
 - (NSButton *)checkBoxForKey:(const char *)key fallback:(int)def
 {
-    NSButton *box = [NSButton checkboxWithTitle:@""
+    return [self checkBoxForKey:key title:@"" fallback:def];
+}
+
+- (NSButton *)checkBoxForKey:(const char *)key title:(NSString *)title fallback:(int)def
+{
+    NSButton *box = [NSButton checkboxWithTitle:title
                                          target:self
                                          action:@selector(settingChanged:)];
     box.state = colecosession_get_int(_session, key, def)
@@ -383,14 +503,40 @@
         @{ NSAboutPanelOptionCredits : credits }];
 }
 
-- (void)showSettings:(id)sender
+- (NSTextField *)noteLabel:(NSString *)text
 {
-    (void)sender;
-    if (_settingsWindow) {
-        [_settingsWindow makeKeyAndOrderFront:nil];
-        return;
-    }
+    NSTextField *note = [NSTextField wrappingLabelWithString:text];
+    note.font = [NSFont systemFontOfSize:NSFont.smallSystemFontSize];
+    note.textColor = NSColor.secondaryLabelColor;
+    note.preferredMaxLayoutWidth = 380;
+    return note;
+}
 
+/* A page: a two-column grid (labels trailing, controls leading) at the top
+ * left of a plain view, and the page's Help button at the bottom left. */
+- (NSView *)pageWithRows:(NSArray<NSArray<NSView *> *> *)rows help:(NSString *)context
+{
+    NSGridView *grid = [NSGridView gridViewWithViews:rows];
+    grid.rowSpacing = 8;
+    grid.columnSpacing = 12;
+    [grid columnAtIndex:0].xPlacement = NSGridCellPlacementTrailing;
+    grid.translatesAutoresizingMaskIntoConstraints = NO;
+
+    NSView *holder = [[NSView alloc] init];
+    [holder addSubview:grid];
+    [grid.leadingAnchor constraintEqualToAnchor:holder.leadingAnchor constant:20].active = YES;
+    [grid.topAnchor constraintEqualToAnchor:holder.topAnchor constant:20].active = YES;
+
+    NSButton *help = COLECOHelpButton(context);
+    help.translatesAutoresizingMaskIntoConstraints = NO;
+    [holder addSubview:help];
+    [help.leadingAnchor constraintEqualToAnchor:holder.leadingAnchor constant:20].active = YES;
+    [help.bottomAnchor constraintEqualToAnchor:holder.bottomAnchor constant:-16].active = YES;
+    return holder;
+}
+
+- (NSView *)machinePage
+{
     _externalField = [NSTextField textFieldWithString:@(
         colecosession_get_str(_session, "fujinet_external_addr", ""))];
     _externalField.placeholderString = @"127.0.0.1:11502";
@@ -400,9 +546,6 @@
     _externalField.target = self;
     _externalField.action = @selector(externalAddrChanged:);
     [_externalField.cell setSendsActionOnEndEditing:YES];
-
-    _biosState = [NSTextField labelWithString:@""];
-    [self refreshRoms];
 
     NSArray<NSArray<NSView *> *> *rows = @[
         @[ [self sectionLabel:@"Machine"], [NSTextField labelWithString:@""] ],
@@ -419,14 +562,6 @@
                             @"Palette 4"
                         ]]
         ],
-        @[
-            [NSTextField labelWithString:@"Swap controller buttons"],
-            [self checkBoxForKey:"swap_buttons" fallback:0]
-        ],
-        @[ [self sectionLabel:@"ROMs"], [NSTextField labelWithString:@""] ],
-        @[ [NSTextField labelWithString:@"Import"], [self romButtons] ],
-        @[ [NSTextField labelWithString:@"Kept in"], [self romPathLabel] ],
-        @[ [NSTextField labelWithString:@"OS7.rom"], _biosState ],
         @[ [self sectionLabel:@"FujiNet"], [NSTextField labelWithString:@""] ],
         @[
             [NSTextField labelWithString:@"Enable FujiNet"],
@@ -442,31 +577,173 @@
             [NSTextField labelWithString:@"Audio"],
             [self checkBoxForKey:"enable_audio" fallback:1]
         ],
-        @[
-            [NSTextField labelWithString:@"Gamepads"],
-            [self checkBoxForKey:"enable_gamepad" fallback:1]
-        ],
+        @[ [NSTextField labelWithString:@""],
+           [self noteLabel:@"Applied by restarting the session when this window is closed."] ],
     ];
+    return [self pageWithRows:rows help:kPageContexts[0]];
+}
 
-    NSGridView *grid = [NSGridView gridViewWithViews:rows];
-    grid.rowSpacing = 8;
-    grid.columnSpacing = 12;
-    [grid columnAtIndex:0].xPlacement = NSGridCellPlacementTrailing;
+/* ---- Settings: Input ------------------------------------------------------------ */
 
-    NSTextField *note = [NSTextField
-        labelWithString:@"Applied by restarting the session when this window "
-                        @"is closed."];
-    note.font = [NSFont systemFontOfSize:NSFont.smallSystemFontSize];
-    note.textColor = NSColor.secondaryLabelColor;
+- (void)refreshPadList
+{
+    const NSInteger sel = _padList.indexOfSelectedItem;
+    [_padList removeAllItems];
+    const int count = colecosession_gamepad_count(_session);
+    if (count == 0)
+        [[_padList menu] addItemWithTitle:@"(no gamepads connected - plug one in)" action:nil keyEquivalent:@""];
+    for (int idx = 0; idx < count; idx++) {
+        char name[128];
+        name[0] = '\0';
+        const int port = colecosession_gamepad_effective_port(_session, idx);
+        colecosession_gamepad_name(_session, idx, name, (int)sizeof name);
+        /* through the menu: a button's own addItemWithTitle: drops an earlier
+         * item of the same title, and two pads can share a name */
+        [[_padList menu] addItemWithTitle:(port >= 0
+            ? [NSString stringWithFormat:@"%d: %s  [controller %d]", idx + 1, name, port + 1]
+            : [NSString stringWithFormat:@"%d: %s  [unused]", idx + 1, name])
+                                   action:nil keyEquivalent:@""];
+    }
+    if (sel >= 0 && sel < count) [_padList selectItemAtIndex:sel];
+    [self padSelected:nil];
+}
 
-    NSStackView *root = [NSStackView stackViewWithViews:@[ grid, note ]];
-    root.orientation = NSUserInterfaceLayoutOrientationVertical;
-    root.alignment = NSLayoutAttributeLeading;
-    root.spacing = 12;
-    root.edgeInsets = NSEdgeInsetsMake(16, 16, 16, 16);
+- (void)padSelected:(id)sender
+{
+    (void)sender;
+    const NSInteger sel = _padList.indexOfSelectedItem;
+    const BOOL have = sel >= 0 && sel < colecosession_gamepad_count(_session);
+    _padPort.enabled = have;
+    if (have) {
+        const int assign = colecosession_gamepad_assignment(_session, (int)sel);
+        [_padPort selectItemAtIndex:(assign < 0 || assign >= COLECO_PORTS ? 0 : assign + 1)];
+    }
+}
+
+- (void)padPortChanged:(id)sender
+{
+    (void)sender;
+    const NSInteger sel = _padList.indexOfSelectedItem;
+    if (sel >= 0 && sel < colecosession_gamepad_count(_session))
+        colecosession_gamepad_assign(_session, (int)sel, (int)_padPort.indexOfSelectedItem - 1);
+    [self refreshPadList];
+}
+
+- (void)resetControls:(id)sender
+{
+    (void)sender;
+    colecosession_bindings_reset(_session);
+    [_controllers refresh];
+    [self showToast:@"Default controls restored"];
+}
+
+- (void)openControllers:(id)sender
+{
+    (void)sender;
+    [_controllers show];
+}
+
+- (NSView *)inputPage
+{
+    _padList = [[NSPopUpButton alloc] init];
+    _padList.target = self;
+    _padList.action = @selector(padSelected:);
+    _padPort = [[NSPopUpButton alloc] init];
+    [_padPort addItemsWithTitles:@[@"Automatic", @"Controller 1", @"Controller 2"]];
+    _padPort.target = self;
+    _padPort.action = @selector(padPortChanged:);
+    NSStackView *padRow = [NSStackView stackViewWithViews:@[ _padList, _padPort ]];
+    padRow.orientation = NSUserInterfaceLayoutOrientationHorizontal;
+
+    NSButton *reset = [NSButton buttonWithTitle:@"Reset Controls" target:self action:@selector(resetControls:)];
+    NSButton *open = [NSButton buttonWithTitle:@"Open Controllers" target:self action:@selector(openControllers:)];
+    NSStackView *buttons = [NSStackView stackViewWithViews:@[ reset, open ]];
+    buttons.orientation = NSUserInterfaceLayoutOrientationHorizontal;
+
+    NSArray<NSArray<NSView *> *> *rows = @[
+        @[ [self sectionLabel:@"Controllers"], [NSTextField labelWithString:@""] ],
+        @[ [NSTextField labelWithString:@""], [self checkBoxForKey:"enable_gamepad" title:@"Enable gamepads" fallback:1] ],
+        @[ [NSTextField labelWithString:@""],
+           [self checkBoxForKey:"swap_buttons" title:@"Swap controller buttons" fallback:0] ],
+        @[ [NSTextField labelWithString:@"Gamepads"], padRow ],
+        @[ [self sectionLabel:@"Controls"], [NSTextField labelWithString:@""] ],
+        @[ [NSTextField labelWithString:@""], buttons ],
+        @[ [NSTextField labelWithString:@""],
+           [self noteLabel:@"Keys and gamepad buttons are re-mapped in the Controllers window "
+                           @"(View > Controllers, F9): click Map, choose a control, then press the key or "
+                           @"the gamepad button. Reset Controls puts the defaults back. Gamepads on or "
+                           @"off and swapped buttons apply by restarting the session when this window "
+                           @"is closed; a gamepad's controller applies at once."] ],
+    ];
+    return [self pageWithRows:rows help:kPageContexts[1]];
+}
+
+/* ---- Settings: ROMs ------------------------------------------------------------- */
+
+- (NSView *)romsPage
+{
+    _biosState = [NSTextField labelWithString:@""];
+    [self refreshRoms];
+    NSArray<NSArray<NSView *> *> *rows = @[
+        @[ [self sectionLabel:@"ROMs"], [NSTextField labelWithString:@""] ],
+        @[ [NSTextField labelWithString:@"Import"], [self romButtons] ],
+        @[ [NSTextField labelWithString:@"Kept in"], [self romPathLabel] ],
+        @[ [NSTextField labelWithString:@"OS7.rom"], _biosState ],
+    ];
+    return [self pageWithRows:rows help:kPageContexts[2]];
+}
+
+/* Hot-plugged gamepads, twice a second, while the window is open. */
+- (void)startPadTimer
+{
+    if (_padTimer) return;
+    _padListGeneration = colecosession_gamepad_generation(_session);
+    [self refreshPadList];
+    __weak ColecoAppDelegate *weakSelf = self;
+    _padTimer = [NSTimer scheduledTimerWithTimeInterval:0.5 repeats:YES block:^(NSTimer *tmr) {
+        (void)tmr;
+        ColecoAppDelegate *strong = weakSelf;
+        if (!strong) return;
+        const unsigned gen = colecosession_gamepad_generation(strong->_session);
+        if (gen != strong->_padListGeneration) {
+            strong->_padListGeneration = gen;
+            [strong refreshPadList];
+        }
+    }];
+    _padTimer.tolerance = 0.25;
+}
+
+/* The Help button and Command+? open the page being shown. */
+- (void)tabView:(NSTabView *)tabView didSelectTabViewItem:(NSTabViewItem *)item
+{
+    const NSInteger idx = [tabView indexOfTabViewItem:item];
+    if (idx >= 0 && idx < 3) COLECOSetHelpContext(_settingsWindow, kPageContexts[idx]);
+}
+
+- (void)showSettings:(id)sender
+{
+    (void)sender;
+    if (_settingsWindow) {
+        [self refreshRoms];
+        [_settingsWindow makeKeyAndOrderFront:nil];
+        [self startPadTimer];
+        return;
+    }
+
+    NSTabView *tabs = [[NSTabView alloc] initWithFrame:NSMakeRect(0, 0, 540, 470)];
+    NSArray *pages = @[ @[ @"Machine", [self machinePage] ],
+                        @[ @"Input", [self inputPage] ],
+                        @[ @"ROMs", [self romsPage] ] ];
+    for (NSArray *page in pages) {
+        NSTabViewItem *item = [[NSTabViewItem alloc] initWithIdentifier:page[0]];
+        item.label = page[0];
+        item.view = page[1];
+        [tabs addTabViewItem:item];
+    }
+    tabs.delegate = self;
 
     _settingsWindow = [[NSWindow alloc]
-        initWithContentRect:NSMakeRect(0, 0, 460, 430)
+        initWithContentRect:NSMakeRect(0, 0, 540, 470)
                   styleMask:NSWindowStyleMaskTitled |
                             NSWindowStyleMaskClosable |
                             NSWindowStyleMaskMiniaturizable
@@ -477,18 +754,11 @@
      * delegate below still needs to be able to identify it. */
     _settingsWindow.releasedWhenClosed = NO;
     _settingsWindow.delegate = self;
-    {
-        /* the settings over a strip with the Help button */
-        NSButton *helpBtn = COLECOHelpButton(@"prefs/Machine");
-        NSStackView *wrap = [NSStackView stackViewWithViews:@[root, helpBtn]];
-        wrap.orientation = NSUserInterfaceLayoutOrientationVertical;
-        wrap.alignment = NSLayoutAttributeLeading;
-        wrap.edgeInsets = NSEdgeInsetsMake(0, 16, 12, 16);
-        _settingsWindow.contentView = wrap;
-        COLECOSetHelpContext(_settingsWindow, @"prefs/Machine");
-    }
+    _settingsWindow.contentView = tabs;
+    COLECOSetHelpContext(_settingsWindow, kPageContexts[0]);
     [_settingsWindow center];
     [_settingsWindow makeKeyAndOrderFront:nil];
+    [self startPadTimer];
 }
 
 /* The Settings ROMs section: two buttons, the folder the ROMs are kept in and
@@ -538,7 +808,8 @@
     }
     if (note.object == _settingsWindow) {
         [_settingsWindow makeFirstResponder:nil]; /* commit a field edit */
-        _biosState = nil;
+        [_padTimer invalidate];
+        _padTimer = nil;
     }
     if (note.object != _settingsWindow || !_sessionDirty)
         return;
@@ -549,6 +820,7 @@
     colecosession_default_opts(_session, &o);
     colecosession_stop(_session);
     colecosession_start(_session, &o);
+    [_controllers refresh];
 }
 
 /* ---- actions ------------------------------------------------------------- */
@@ -607,11 +879,27 @@
     colecosession_reset_to_config(_session);
 }
 
-- (void)resetConsole:(id)sender { (void)sender; colecosession_reset(_session); }
-- (void)resetConfig:(id)sender
+- (void)resetConsole:(id)sender { (void)sender; [self runSysaction:COLECO_SYSACT_RESET]; }
+- (void)resetConfig:(id)sender { (void)sender; [self runSysaction:COLECO_SYSACT_RESET_CONFIG]; }
+
+/* "Reset Console (F5)": the key bound to a console action now, if any (the
+ * Controllers window remaps them). */
+- (NSString *)title:(NSString *)base forTarget:(int)target
 {
-    (void)sender;
-    colecosession_reset_to_config(_session);
+    char key[32];
+    const coleco_binding bind = colecosession_binding_get(_session, target);
+    if (!bind.keysym || colecosession_keysym_name(bind.keysym, key, (int)sizeof key) <= 0) return base;
+    return [NSString stringWithFormat:@"%@ (%s)", base, key];
+}
+
+- (BOOL)validateMenuItem:(NSMenuItem *)item
+{
+    const SEL action = [item action];
+    if (action == @selector(resetConsole:))
+        [item setTitle:[self title:@"Reset Console" forTarget:COLECO_TARGET_SYSACT(COLECO_SYSACT_RESET)]];
+    else if (action == @selector(resetConfig:))
+        [item setTitle:[self title:@"Reset to CONFIG" forTarget:COLECO_TARGET_SYSACT(COLECO_SYSACT_RESET_CONFIG)]];
+    return YES;
 }
 
 /* ---- Import BIOS -----------------------------------------------------------
@@ -718,10 +1006,10 @@
     [self importRomsFromPanel:YES];
 }
 
-- (void)toggleKeypad:(id)sender
+- (void)toggleControllers:(id)sender
 {
     (void)sender;
-    [ColecoKeypadWindow toggleWithSession:_session];
+    [_controllers toggle];
 }
 
 - (void)showDebugger:(id)sender
