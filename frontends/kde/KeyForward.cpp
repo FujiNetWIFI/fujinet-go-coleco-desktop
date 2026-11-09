@@ -7,34 +7,53 @@
 
 #include "KeyForward.h"
 
-uint32_t colecoKeysymFromQt(const QKeyEvent *e)
+#include "colecosession.h"
+
+bool colecoIsAppKey(const QKeyEvent *evt)
 {
-    switch (e->key()) {
-    case Qt::Key_Up:      return 0xFF52;
-    case Qt::Key_Down:    return 0xFF54;
-    case Qt::Key_Left:    return 0xFF51;
-    case Qt::Key_Right:   return 0xFF53;
-    case Qt::Key_Tab:     return 0xFF09;
-    case Qt::Key_Escape:  return 0xFF1B;
-    case Qt::Key_Shift:   return 0xFFE1;
-    case Qt::Key_Control: return 0xFFE3;
-    case Qt::Key_Alt:     return 0xFFE9;
-    case Qt::Key_F5:      return 0xFFC2;
-    case Qt::Key_F6:      return 0xFFC3;
-    case Qt::Key_F9:      return 0xFFC6;
-    case Qt::Key_F12:     return 0xFFC9;
-    case Qt::Key_Asterisk: return '*';
-    case Qt::Key_NumberSign: return '#';
-    default: break;
+    const int qtkey = evt->key();
+    return qtkey == Qt::Key_F9 || qtkey == Qt::Key_F12;
+}
+
+uint32_t colecoKeysymFromQt(const QKeyEvent *evt)
+{
+    /* On X11 and Wayland Qt reports the X keycode, which is the evdev code
+     * plus 8. */
+    const quint32 scan = evt->nativeScanCode();
+    if (scan >= 8) {
+        const uint32_t sym = colecosession_keysym_from_evdev(scan - 8);
+        if (sym) return sym;
     }
 
-    /* Digits and letters map straight across. Qt reports letters as their
-     * uppercase code point; the binding table folds case, so passing the
-     * uppercase form through is correct and needs no shift handling here. */
-    const int k = e->key();
-    if (k >= Qt::Key_0 && k <= Qt::Key_9)
-        return (uint32_t)('0' + (k - Qt::Key_0));
-    if (k >= Qt::Key_A && k <= Qt::Key_Z)
-        return (uint32_t)('A' + (k - Qt::Key_A));
+    const int qtkey = evt->key();
+    const bool keypad = (evt->modifiers() & Qt::KeypadModifier) != 0;
+    switch (qtkey) {
+    case Qt::Key_Up:      return COLECOSESSION_KEYSYM_UP;
+    case Qt::Key_Down:    return COLECOSESSION_KEYSYM_DOWN;
+    case Qt::Key_Left:    return COLECOSESSION_KEYSYM_LEFT;
+    case Qt::Key_Right:   return COLECOSESSION_KEYSYM_RIGHT;
+    case Qt::Key_Tab:     return COLECOSESSION_KEYSYM_TAB;
+    case Qt::Key_Escape:  return COLECOSESSION_KEYSYM_ESCAPE;
+    case Qt::Key_Return:  return COLECOSESSION_KEYSYM_RETURN;
+    case Qt::Key_Enter:   return COLECOSESSION_KEYSYM_KP_ENTER;
+    case Qt::Key_Backspace: return COLECOSESSION_KEYSYM_BACKSPACE;
+    case Qt::Key_Space:   return COLECOSESSION_KEYSYM_SPACE;
+    case Qt::Key_Shift:   return COLECOSESSION_KEYSYM_LSHIFT;
+    case Qt::Key_Control: return COLECOSESSION_KEYSYM_LCTRL;
+    case Qt::Key_Alt:     return COLECOSESSION_KEYSYM_LALT;
+    case Qt::Key_Asterisk: if (keypad) return COLECOSESSION_KEYSYM_KP_MULTIPLY; break;
+    case Qt::Key_Slash:    if (keypad) return COLECOSESSION_KEYSYM_KP_DIVIDE; break;
+    default: break;
+    }
+    if (qtkey >= Qt::Key_F1 && qtkey <= Qt::Key_F12)
+        return COLECOSESSION_KEYSYM_F1 + (uint32_t)(qtkey - Qt::Key_F1);
+    if (qtkey >= Qt::Key_0 && qtkey <= Qt::Key_9) {
+        const uint32_t digit = (uint32_t)(qtkey - Qt::Key_0);
+        return keypad ? COLECOSESSION_KEYSYM_KP_0 + digit : (uint32_t)'0' + digit;
+    }
+    if (qtkey >= Qt::Key_A && qtkey <= Qt::Key_Z)
+        return (uint32_t)('a' + (qtkey - Qt::Key_A));
+    if (qtkey >= 0x20 && qtkey <= 0x7e)
+        return (uint32_t)qtkey;
     return 0;
 }

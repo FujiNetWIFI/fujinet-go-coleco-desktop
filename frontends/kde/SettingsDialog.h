@@ -23,8 +23,11 @@ public:
     /* Returns true if a machine option changed or a BIOS was imported, i.e. the
      * caller should restart the session. Returns false on Cancel, and also on OK when
      * nothing was actually altered -- restarting the machine because
-     * somebody opened the dialog and pressed OK would be gratuitous. */
-    static bool run(QWidget *parent, colecosession *session);
+     * somebody opened the dialog and pressed OK would be gratuitous.
+     * The Input page's "Open Controllers" closes the dialog (as OK) and sets
+     * *openControllers: a modal dialog would block the window it opens. */
+    static bool run(QWidget *parent, colecosession *session,
+                    bool *openControllers = nullptr);
 
     /* Import BIOS: the user's own dump from `path` or, when that is empty,
      * from a file chooser (several files at once, zips included) or, with

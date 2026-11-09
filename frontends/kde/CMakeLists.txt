@@ -18,6 +18,7 @@ set(CMAKE_AUTOMOC ON)
 
 # Qt 6.7 for QRhiWidget (the GPU display); ShaderTools bakes its shaders.
 find_package(Qt6 6.7 COMPONENTS Widgets GuiPrivate ShaderTools QUIET)
+find_package(Qt6 6.7 COMPONENTS Test QUIET)
 if(NOT Qt6_FOUND)
   message(STATUS "kde frontend: Qt6 Widgets not found -- skipping")
   return()
@@ -29,7 +30,7 @@ add_executable(fujinet-go-coleco-kde
   DisplayWidget.cpp
   SoftDisplayWidget.cpp
   FrameFeed.cpp
-  KeypadWindow.cpp
+  controllers/ControllersWindow.cpp
   KeyForward.cpp
   SettingsDialog.cpp
   FujiNetLogWindow.cpp
@@ -42,6 +43,24 @@ qt_add_shaders(fujinet-go-coleco-kde "display_shaders"
   PREFIX "/"
   FILES shaders/display.vert shaders/display.frag)
 target_compile_options(fujinet-go-coleco-kde PRIVATE -Wall -Wextra)
+
+# The Controllers window, offscreen, on an SDL virtual gamepad (no BIOS, no
+# machine): needs the Qt Test module, so it is found-or-skipped too.
+if(Qt6Test_FOUND)
+  add_executable(controllers_test_kde
+    controllers_test.cpp
+    controllers/ControllersWindow.cpp
+    KeyForward.cpp
+    help/HelpWindow.cpp
+    debugger/DebuggerWindow.cpp
+  )
+  target_link_libraries(controllers_test_kde PRIVATE coleco_session Qt6::Widgets Qt6::Test Qt6::GuiPrivate)
+  target_include_directories(controllers_test_kde PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+  add_test(NAME controllers_kde COMMAND controllers_test_kde)
+  set_tests_properties(controllers_kde PROPERTIES
+    SKIP_RETURN_CODE 77 TIMEOUT 60
+    ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+endif()
 
 install(TARGETS fujinet-go-coleco-kde RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
 

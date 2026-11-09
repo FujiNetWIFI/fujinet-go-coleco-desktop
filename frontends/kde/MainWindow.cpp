@@ -29,7 +29,7 @@
 #include "DisplayWidget.h"
 #include "SoftDisplayWidget.h"
 #include "KeyForward.h"
-#include "KeypadWindow.h"
+#include "controllers/ControllersWindow.h"
 #include "help/HelpWindow.h"
 #include "debugger/DebuggerWindow.h"
 
@@ -42,7 +42,6 @@ MainWindow::MainWindow(colecosession *session, QWidget *parent)
      * without resizing on every launch. */
     resize(848, 636);
     setAcceptDrops(true);
-    coleco_input_reset(&m_keys);
 
     auto *gpu = new DisplayWidget(session, this);
     m_display = gpu;
@@ -61,11 +60,20 @@ MainWindow::MainWindow(colecosession *session, QWidget *parent)
     m_statusTimer.start(1000);
     updateStatus();
 
-    /* COLECO_OPEN_KEYPAD / COLECO_OPEN_DEBUGGER, the same launch hooks the
-     * GNOME frontend has and for the same reason: they are the way in when
-     * the app misbehaves before a menu is reachable. */
-    if (qEnvironmentVariableIsSet("COLECO_OPEN_KEYPAD"))
-        toggleKeypad();
+    /* One timer for the news the other threads leave: the gamepad thread
+     * cannot call into Qt, so it posts console actions and hot-plug events
+     * and this takes them. The baseline keeps pads already attached from
+     * announcing themselves. */
+    m_padGen = colecosession_gamepad_generation(session);
+    connect(&m_tickTimer, &QTimer::timeout, this, &MainWindow::tick);
+    m_tickTimer.start(50);
+
+    /* COLECO_OPEN_CONTROLLERS (or its old name COLECO_OPEN_KEYPAD) /
+     * COLECO_OPEN_DEBUGGER, the same launch hooks the GNOME frontend has and
+     * for the same reason: they are the way in when the app misbehaves
+     * before a menu is reachable. */
+    if (qEnvironmentVariableIsSet("COLECO_OPEN_CONTROLLERS") || qEnvironmentVariableIsSet("COLECO_OPEN_KEYPAD"))
+        QTimer::singleShot(0, this, &MainWindow::toggleControllers);
     if (qEnvironmentVariableIsSet("COLECO_OPEN_DEBUGGER"))
         DebuggerWindow::showFor(this, session);
     /* COLECO_OPEN_SETTINGS opens Preferences once the event loop runs (the
@@ -91,9 +99,9 @@ void MainWindow::buildMenus()
     });
     machine->addSeparator();
     machine->addAction(QStringLiteral("&Reset Console"), this,
-                       [this] { colecosession_reset(m_session); });
+                       [this] { runSysaction(COLECO_SYSACT_RESET); });
     machine->addAction(QStringLiteral("Reset to &CONFIG"), this,
-                       [this] { colecosession_reset_to_config(m_session); });
+                       [this] { runSysaction(COLECO_SYSACT_RESET_CONFIG); });
     machine->addSeparator();
     machine->addAction(QStringLiteral("Import &BIOS..."), this,
                        [this] { importRoms(false); });
@@ -112,7 +120,7 @@ void MainWindow::buildMenus()
 
     QMenu *view = menuBar()->addMenu(QStringLiteral("&View"));
     view->addAction(QStringLiteral("&Controllers"), QKeySequence(Qt::Key_F9),
-                    this, &MainWindow::toggleKeypad);
+                    this, &MainWindow::toggleControllers);
     view->addAction(QStringLiteral("&Debugger"), QKeySequence(Qt::Key_F12),
                     this, [this] { DebuggerWindow::showFor(this, m_session); });
     view->addSeparator();
@@ -187,8 +195,11 @@ void MainWindow::showAbout()
 
 void MainWindow::showSettings()
 {
-    if (SettingsDialog::run(this, m_session))
+    bool openControllers = false;
+    if (SettingsDialog::run(this, m_session, &openControllers))
         restartSession();
+    colecoControllersRefresh();
+    if (openControllers) colecoControllersShow(this, m_session);
 }
 
 /* ---- the BIOS ------------------------------------------------------------ */
@@ -282,13 +293,53 @@ void MainWindow::restartSession()
             QStringLiteral("Machine options applied (session restarted)"), 5000);
 }
 
-void MainWindow::toggleKeypad()
+void MainWindow::toggleControllers()
 {
-    if (!m_keypad) m_keypad = new KeypadWindow(m_session, this);
-    /* Hide, do not destroy: a remap in progress and the window's position
+    /* Hidden, not destroyed: a remap in progress and the window's position
      * both survive closing it. */
-    if (m_keypad->isVisible()) m_keypad->hide();
-    else m_keypad->show();
+    colecoControllersToggle(this, m_session);
+}
+
+/* ---- the timer ------------------------------------------------------------ */
+
+void MainWindow::tick()
+{
+    drainSysactions();
+    pollGamepads();
+}
+
+void MainWindow::drainSysactions()
+{
+    int sysact;
+    while (colecosession_sysaction_take(m_session, &sysact)) runSysaction(sysact);
+}
+
+/* A console action, from a key, a pad button, the Controllers window or the
+ * menu: always here, on the UI thread. */
+void MainWindow::runSysaction(int sysact)
+{
+    switch (sysact) {
+    case COLECO_SYSACT_RESET:
+        colecosession_sysaction(m_session, sysact);
+        statusBar()->showMessage(QStringLiteral("Console reset"), 3000);
+        break;
+    case COLECO_SYSACT_RESET_CONFIG:
+        colecosession_sysaction(m_session, sysact);
+        statusBar()->showMessage(QStringLiteral("Back to the FujiNet CONFIG"), 3000);
+        updateStatus();
+        break;
+    default: break;
+    }
+}
+
+void MainWindow::pollGamepads()
+{
+    const unsigned gen = colecosession_gamepad_generation(m_session);
+    if (gen == m_padGen) return;
+    m_padGen = gen;
+    char msg[160];
+    if (colecosession_gamepad_last_event(m_session, msg, sizeof msg) > 0)
+        statusBar()->showMessage(QString::fromUtf8(msg), 4000);
 }
 
 void MainWindow::useSoftwareDisplay()
@@ -345,48 +396,47 @@ void MainWindow::loadMedia(const QString &path)
     start();
 }
 
-void MainWindow::pushInput()
+void MainWindow::keyPressEvent(QKeyEvent *evt)
 {
-    /* Push both ports every time: the controller word is a snapshot of
-     * everything held, so sending only the port that changed would be an
-     * optimisation with a bug in it the first time keys on both are down. */
-    colecosession_joystick_raw(m_session, 0, coleco_input_word(&m_keys, 0));
-    colecosession_joystick_raw(m_session, 1, coleco_input_word(&m_keys, 1));
-}
-
-void MainWindow::keyPressEvent(QKeyEvent *e)
-{
-    if (e->isAutoRepeat()) return;
-    if (e->key() == Qt::Key_F9) { toggleKeypad(); return; }
-    if (e->key() == Qt::Key_F12) {
+    if (evt->isAutoRepeat()) return;
+    if (evt->key() == Qt::Key_F9) { toggleControllers(); return; }
+    if (evt->key() == Qt::Key_F12) {
         DebuggerWindow::showFor(this, m_session);
         return;
     }
 
-    const uint32_t ks = colecoKeysymFromQt(e);
-    if (!ks) { QMainWindow::keyPressEvent(e); return; }
+    const uint32_t keysym = colecoKeysymFromQt(evt);
+    if (!keysym) { QMainWindow::keyPressEvent(evt); return; }
 
-    const int sa = coleco_input_key_sysaction(ks);
-    if (sa >= 0) { colecosession_sysaction(m_session, sa); return; }
-    if (coleco_input_key(&m_keys, ks, 1)) pushInput();
-    else QMainWindow::keyPressEvent(e);
-}
-
-void MainWindow::keyReleaseEvent(QKeyEvent *e)
-{
-    if (e->isAutoRepeat()) return;
-    const uint32_t ks = colecoKeysymFromQt(e);
-    if (ks && coleco_input_key(&m_keys, ks, 0)) pushInput();
-    else QMainWindow::keyReleaseEvent(e);
-}
-
-bool MainWindow::event(QEvent *e)
-{
-    if (e->type() == QEvent::WindowDeactivate) {
-        coleco_input_reset(&m_keys);
-        pushInput();
+    /* No "a key typed with Ctrl is the app's" rule: Left Ctrl is Controller
+     * 1's fire button, so steering with it held must reach the console. The
+     * app's Ctrl chords are menu shortcuts, which Qt takes before a key
+     * event exists. A console action runs on the leading edge only. */
+    const int sysact = colecosession_key_sysaction(m_session, keysym);
+    if (sysact >= 0) {
+        if (!m_sysactDown[sysact]) { m_sysactDown[sysact] = true; runSysaction(sysact); }
+        return;
     }
-    return QMainWindow::event(e);
+    if (!colecosession_key(m_session, keysym, 1)) QMainWindow::keyPressEvent(evt);
+}
+
+void MainWindow::keyReleaseEvent(QKeyEvent *evt)
+{
+    if (evt->isAutoRepeat()) return;
+    const uint32_t keysym = colecoKeysymFromQt(evt);
+    if (!keysym) { QMainWindow::keyReleaseEvent(evt); return; }
+    const int sysact = colecosession_key_sysaction(m_session, keysym);
+    if (sysact >= 0) { m_sysactDown[sysact] = false; return; }
+    if (!colecosession_key(m_session, keysym, 0)) QMainWindow::keyReleaseEvent(evt);
+}
+
+bool MainWindow::event(QEvent *evt)
+{
+    if (evt->type() == QEvent::WindowDeactivate) {
+        colecosession_release_all(m_session);
+        for (bool &down : m_sysactDown) down = false;
+    }
+    return QMainWindow::event(evt);
 }
 
 void MainWindow::dragEnterEvent(QDragEnterEvent *e)
@@ -405,5 +455,6 @@ void MainWindow::dropEvent(QDropEvent *e)
 void MainWindow::closeEvent(QCloseEvent *e)
 {
     m_statusTimer.stop();
+    m_tickTimer.stop();
     QMainWindow::closeEvent(e);
 }

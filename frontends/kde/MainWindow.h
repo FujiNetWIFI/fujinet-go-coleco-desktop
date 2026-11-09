@@ -13,7 +13,6 @@
 #include "colecosession.h"
 
 class DisplayView;
-class KeypadWindow;
 
 class MainWindow : public QMainWindow {
     Q_OBJECT
@@ -38,10 +37,14 @@ protected:
 
 private:
     void buildMenus();
-    void pushInput();
     void updateStatus();
+    /* the news the gamepad thread leaves: console actions and hot-plugs */
+    void tick();
+    void drainSysactions();
+    void runSysaction(int sysact);
+    void pollGamepads();
     void loadMedia(const QString &path);
-    void toggleKeypad();
+    void toggleControllers();
     void useSoftwareDisplay();
     void applyPicture();
     void showSettings();
@@ -54,8 +57,9 @@ private:
 
     colecosession *m_session;
     DisplayView *m_display = nullptr;
-    KeypadWindow *m_keypad = nullptr;
     QLabel *m_status = nullptr;
     QTimer m_statusTimer;
-    coleco_input_state m_keys{};
+    QTimer m_tickTimer;
+    unsigned m_padGen = 0;
+    bool m_sysactDown[COLECO_SYSACT_COUNT] = {};
 };

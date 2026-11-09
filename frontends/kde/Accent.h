@@ -22,6 +22,11 @@ inline QColor colecoAccentColor()
                   COLECOSESSION_ACCENT_RGB & 0xff);
 }
 
+/* The accent's edge (a held part's outline shade) and the ink on it: the
+ * accent is dark, so text on it is white. */
+inline QColor colecoAccentDarkColor() { return colecoAccentColor().darker(140); }
+inline QColor colecoAccentInk() { return QColor(Qt::white); }
+
 /* Puts a button in or out of the accent state and repolishes it, so the
  * style sheet's [accent="true"] rule takes effect at once. */
 inline void colecoSetAccent(QPushButton *b, bool on)

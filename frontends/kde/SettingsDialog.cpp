@@ -7,6 +7,10 @@
 #include "SettingsDialog.h"
 #include "help/HelpWindow.h"
 
+#include <QTimer>
+#include <functional>
+#include <vector>
+
 #include <QCheckBox>
 #include <QComboBox>
 #include <QDialogButtonBox>
@@ -100,7 +104,7 @@ int SettingsDialog::importRoms(QWidget *parent, colecosession *session,
     return total;
 }
 
-bool SettingsDialog::run(QWidget *parent, colecosession *session)
+bool SettingsDialog::run(QWidget *parent, colecosession *session, bool *openControllers)
 {
     QDialog dlg(parent);
     dlg.setWindowTitle(QStringLiteral("Preferences"));
@@ -124,13 +128,8 @@ bool SettingsDialog::run(QWidget *parent, colecosession *session)
     for (int i = 0; kPalettes[i]; ++i)
         palette->addItem(QString::fromUtf8(kPalettes[i]));
     palette->setCurrentIndex(colecosession_get_int(session, "palette", 0));
-    QCheckBox *swap = check("Swap controller buttons",
-                            "Exchange the left and right fire buttons on both "
-                            "ports",
-                            session, "swap_buttons", 0);
     mform->addRow(sgm);
     mform->addRow(QStringLiteral("Palette"), palette);
-    mform->addRow(swap);
     pageLayout->addWidget(machine);
 
     auto *net = new QGroupBox(QStringLiteral("FujiNet"));
@@ -159,13 +158,113 @@ bool SettingsDialog::run(QWidget *parent, colecosession *session)
     auto *hform = new QFormLayout(host);
     QCheckBox *audio = check("Audio", "Open the system audio device", session,
                              "enable_audio", 1);
-    QCheckBox *pads = check("Gamepads", "Poll USB/Bluetooth gamepads", session,
-                            "enable_gamepad", 1);
     hform->addRow(audio);
-    hform->addRow(pads);
     pageLayout->addWidget(host);
 
     pageLayout->addStretch(1);
+
+    /* ---- Input ---- */
+    auto *inputPage = new QWidget;
+    auto *inputLayout = new QVBoxLayout(inputPage);
+    auto *controllers = new QGroupBox(QStringLiteral("Controllers"));
+    auto *cform = new QFormLayout(controllers);
+    QCheckBox *pads = check("Enable gamepads", "Poll USB/Bluetooth gamepads", session,
+                            "enable_gamepad", 1);
+    QCheckBox *swap = check("Swap controller buttons",
+                            "Exchange the left and right fire buttons on both "
+                            "controllers",
+                            session, "swap_buttons", 0);
+    cform->addRow(pads);
+    cform->addRow(swap);
+    inputLayout->addWidget(controllers);
+
+    /* one row per pad, rebuilt as they come and go; an assignment applies at
+     * once and is remembered, so it is not part of what OK restarts for */
+    auto *padsBox = new QGroupBox(QStringLiteral("Gamepads"));
+    auto *padsLayout = new QVBoxLayout(padsBox);
+    auto *padsNote = new QLabel(QStringLiteral(
+        "The first pad is Controller 1, the next Controller 2, unless chosen here."));
+    padsNote->setWordWrap(true);
+    padsLayout->addWidget(padsNote);
+    auto *padForm = new QFormLayout;
+    padsLayout->addLayout(padForm);
+    inputLayout->addWidget(padsBox);
+    std::vector<QWidget *> padRows;
+    unsigned padGen = colecosession_gamepad_generation(session);
+    std::function<void()> rebuildPads = [&] {
+        for (QWidget *row : padRows) padForm->removeRow(row);
+        padRows.clear();
+        const int count = colecosession_gamepad_count(session);
+        if (count == 0) {
+            auto *none = new QLabel(QStringLiteral(
+                "No gamepads connected - plug one in: it is picked up as it appears."));
+            none->setWordWrap(true);
+            none->setStyleSheet(QStringLiteral("color: gray;"));
+            padForm->addRow(none);
+            padRows.push_back(none);
+            return;
+        }
+        for (int idx = 0; idx < count && idx < 8; ++idx) {
+            char name[128];
+            colecosession_gamepad_name(session, idx, name, sizeof name);
+            auto *box = new QComboBox;
+            box->addItems({QStringLiteral("Automatic"), QStringLiteral("Controller 1"),
+                           QStringLiteral("Controller 2")});
+            const int assign = colecosession_gamepad_assignment(session, idx);
+            box->setCurrentIndex(assign < 0 || assign > 1 ? 0 : assign + 1);
+            const int eff = colecosession_gamepad_effective_port(session, idx);
+            box->setToolTip(eff >= 0 ? QStringLiteral("Driving controller %1").arg(eff + 1)
+                                     : QStringLiteral("Driving nothing"));
+            QObject::connect(box, &QComboBox::currentIndexChanged, box,
+                             [session, idx, box](int sel) {
+                colecosession_gamepad_assign(session, idx, sel <= 0 ? -1 : sel - 1);
+                const int now = colecosession_gamepad_effective_port(session, idx);
+                box->setToolTip(now >= 0 ? QStringLiteral("Driving controller %1").arg(now + 1)
+                                         : QStringLiteral("Driving nothing"));
+            });
+            padForm->addRow(QString::fromUtf8(name), box);
+            padRows.push_back(box);
+        }
+    };
+    rebuildPads();
+    QTimer padTimer;
+    QObject::connect(&padTimer, &QTimer::timeout, &dlg, [&] {
+        const unsigned gen = colecosession_gamepad_generation(session);
+        if (gen == padGen) return;
+        padGen = gen;
+        rebuildPads();
+    });
+    padTimer.start(1000);
+
+    auto *controls = new QGroupBox(QStringLiteral("Controls"));
+    auto *controlsLayout = new QVBoxLayout(controls);
+    auto *controlsNote = new QLabel(QStringLiteral(
+        "Keys and gamepad buttons are re-mapped in the Controllers window (Map)."));
+    controlsNote->setWordWrap(true);
+    controlsLayout->addWidget(controlsNote);
+    auto *controlsRow = new QHBoxLayout;
+    auto *resetControls = new QPushButton(QStringLiteral("Reset Controls"));
+    resetControls->setToolTip(QStringLiteral("Put every key and gamepad button back to its default"));
+    auto *openWindow = new QPushButton(QStringLiteral("Open Controllers"));
+    openWindow->setToolTip(QStringLiteral("Close Preferences and open the Controllers window"));
+    controlsRow->addWidget(resetControls);
+    controlsRow->addWidget(openWindow);
+    controlsRow->addStretch(1);
+    controlsLayout->addLayout(controlsRow);
+    auto *controlsState = new QLabel;
+    controlsLayout->addWidget(controlsState);
+    inputLayout->addWidget(controls);
+    inputLayout->addStretch(1);
+    QObject::connect(resetControls, &QPushButton::clicked, &dlg, [&, controlsState] {
+        colecosession_bindings_reset(session);
+        controlsState->setText(QStringLiteral("Every key and gamepad button is back to its default."));
+    });
+    bool wantControllers = false;
+    QObject::connect(openWindow, &QPushButton::clicked, &dlg, [&] {
+        wantControllers = true;
+        dlg.accept();
+    });
+    tabs->addTab(inputPage, QStringLiteral("Input"));
 
     /* ---- ROMs ---- */
     bool imported = false;
@@ -223,12 +322,13 @@ bool SettingsDialog::run(QWidget *parent, colecosession *session)
     outer->addWidget(note);
 
     /* Help, F1 and Ctrl+Shift+H (the app's shortcuts don't reach a modal dialog) */
-    auto pageContext = [tabs](int i) {
-        return i == 1 ? QStringLiteral("prefs/ROMs") : QStringLiteral("prefs/Machine");
+    auto pageContext = [tabs](int page) {
+        return page == 2 ? QStringLiteral("prefs/ROMs")
+             : page == 1 ? QStringLiteral("prefs/Input") : QStringLiteral("prefs/Machine");
     };
     dlg.setProperty("colecoHelpContext", pageContext(tabs->currentIndex()));
     QObject::connect(tabs, &QTabWidget::currentChanged, &dlg,
-                     [&dlg, pageContext](int i) { dlg.setProperty("colecoHelpContext", pageContext(i)); });
+                     [&dlg, pageContext](int page) { dlg.setProperty("colecoHelpContext", pageContext(page)); });
     auto *buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel |
                                          QDialogButtonBox::Help);
     QObject::connect(buttons, &QDialogButtonBox::helpRequested, &dlg, [&dlg] { colecoHelpFor(&dlg); });
@@ -255,8 +355,11 @@ bool SettingsDialog::run(QWidget *parent, colecosession *session)
                      &QDialog::reject);
     outer->addWidget(buttons);
 
-    if (dlg.exec() != QDialog::Accepted)
+    const int result = dlg.exec();
+    padTimer.stop();
+    if (result != QDialog::Accepted)
         return imported;    /* an import is already on disk, Cancel or not */
+    if (openControllers) *openControllers = wantControllers;
 
     bool changed = imported;
     changed |= commit(session, "sgm", 1, sgm->isChecked() ? 1 : 0);
