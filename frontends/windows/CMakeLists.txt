@@ -21,7 +21,8 @@ add_executable(fujinet-go-coleco-windows WIN32
   main.c
   help/help_window.c
   import.c
-  keypad/keypad_window.c
+  prefs.c
+  controllers/controllers_window.c
   debugger/dbg_window.c
   resource.rc
 )
@@ -31,7 +32,7 @@ target_link_libraries(fujinet-go-coleco-windows PRIVATE
   coleco_session
   # dwmapi: DwmFlush, this platform's frame clock. comdlg32: the file
   # dialogs. shell32: DragQueryFile and ShellExecute for the web UI.
-  # comctl32: the debugger's list and tab controls (and the v6 manifest
+  # comctl32: the Settings and debugger tab and list controls (and the v6 manifest
   # above is what makes them look like this decade). ole32: the folder
   # browser behind Import BIOS from a Folder (CoInitializeEx, CoTaskMemFree).
   dwmapi comdlg32 shell32 comctl32 ole32)

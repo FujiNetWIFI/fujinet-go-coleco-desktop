@@ -1,7 +1,7 @@
 /*
  * The app's accent colour for the Windows frontend: the TMS9918's dark blue
  * (COLECOSESSION_ACCENT_RGB, the launcher icon's colour), with WHITE text on
- * it. A push button drawn by the app itself (the keypad) fills its held or
+ * it. A push button drawn by the app itself (the Controllers window) fills its held or
  * remap-target state with coleco_accent_brush(); a real BUTTON control that
  * is a checkable push button handles NM_CUSTOMDRAW in its parent's WM_NOTIFY
  * and returns

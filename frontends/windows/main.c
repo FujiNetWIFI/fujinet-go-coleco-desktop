@@ -32,9 +32,10 @@
 #include "help/help_window.h"
 #include "colecosession.h"
 #include "debugger/dbg_window.h"
-#include "keypad/keypad_window.h"
+#include "controllers/controllers_window.h"
 #include "import.h"
 #include "key_forward.h"
+#include "prefs.h"
 #include "resource.h"
 
 #ifndef EM_SETCUEBANNER
@@ -42,10 +43,18 @@
 #endif
 
 #define WIN_CLASS "FujiNetGoColecoVision"
+#define APP_TITLE "FujiNet Go ColecoVision"
+
+/* The main window's own timer: system actions from the gamepad thread, the
+ * hot-plug notice, and the notice's expiry. */
+#define IDT_MAIN 10
+#define NOTICE_MS 4000
 
 static colecosession *g_session;
 static HWND g_hwnd;
-static coleco_input_state g_input;
+static unsigned g_pad_generation;
+static DWORD g_notice_until;            /* tick the title notice ends, 0 = none */
+static int g_sysact_down[COLECO_SYSACT_COUNT];  /* a held Reset key fires once */
 static uint16_t *g_fb;
 static uint32_t *g_rgb;
 static uint64_t g_serial;
@@ -166,10 +175,44 @@ static void restart_session(void)
         report_start_failure("Could not start");
 }
 
-static void push_input(void)
+/* A short notice in the title bar (there is no status bar): a gamepad
+ * hot-plug, a reset. */
+static void notice(const char *text)
 {
-    colecosession_joystick_raw(g_session, 0, coleco_input_word(&g_input, 0));
-    colecosession_joystick_raw(g_session, 1, coleco_input_word(&g_input, 1));
+    char title[400];
+    snprintf(title, sizeof title, APP_TITLE " - %s", text);
+    coleco_set_text_utf8(g_hwnd, title);
+    g_notice_until = GetTickCount() + NOTICE_MS;
+    if (!g_notice_until) g_notice_until = 1;
+}
+
+static void notice_tick(void)
+{
+    if (!g_notice_until || (LONG)(GetTickCount() - g_notice_until) < 0) return;
+    g_notice_until = 0;
+    SetWindowTextA(g_hwnd, APP_TITLE);
+}
+
+/* Run a system action (a bound key, the menu, a gamepad button or the
+ * Controllers window): the UI thread only. */
+static void run_sysaction(int sysact)
+{
+    colecosession_sysaction(g_session, sysact);
+    notice(sysact == COLECO_SYSACT_RESET ? "Console reset" : "Back to the FujiNet CONFIG client");
+}
+
+/* Gamepad hot-plug: the session bumps a generation on every add/remove and
+ * keeps the last event as text; show it for a few seconds. */
+static void poll_gamepads(void)
+{
+    const unsigned gen = colecosession_gamepad_generation(g_session);
+    char text[160];
+    if (gen == g_pad_generation) return;
+    g_pad_generation = gen;
+    if (colecosession_gamepad_last_event(g_session, text, sizeof text) > 0)
+        notice(text);
+    coleco_controllers_window_refresh();
+    coleco_prefs_gamepads_changed();
 }
 
 /* ---- menu ----------------------------------------------------------------- */
@@ -196,7 +239,7 @@ static void build_menu(HWND hwnd)
     AppendMenu(machine, MF_SEPARATOR, 0, NULL);
     AppendMenu(machine, MF_STRING, IDM_EXIT, "E&xit");
 
-    AppendMenu(view, MF_STRING, IDM_KEYPAD, "&Controllers\tF9");
+    AppendMenu(view, MF_STRING, IDM_CONTROLLERS, "&Controllers\tF9");
     AppendMenu(view, MF_STRING, IDM_DEBUGGER, "&Debugger\tF12");
     AppendMenu(view, MF_SEPARATOR, 0, NULL);
     AppendMenu(view, MF_STRING | MF_CHECKED, IDM_TV_ASPECT, "&TV Aspect (4:3)");
@@ -288,15 +331,13 @@ static int ask(HWND owner, const char *text, const char *title,
                        MB_ICONINFORMATION | MB_YESNO) == IDYES;
 }
 
-static void settings_refresh_roms(void);
-
 /* The BIOS changed under a console that had none: the session restarts to
  * pick it up -- the cartridge it runs again, or CONFIG. */
 static void apply_new_roms(int was_missing)
 {
     if (was_missing)
         restart_session();
-    settings_refresh_roms();
+    coleco_prefs_roms_changed();
 }
 
 /* Import BIOS from the menu, Settings or an alert: files or a folder.
@@ -355,299 +396,31 @@ static void pick_cart(void)
     load_media(path);
 }
 
-/* ---- settings window -------------------------------------------------------
+/* ---- settings window ---------------------------------------------------------
  *
- * Same six machine options, the same keys and the same defaults as the GNOME
- * Preferences dialog, so a machine configured in one frontend comes up the
- * same in another -- they share one settings store. Every one of them is read
- * by colecosession_default_opts() at session start, so all of them are
- * applied by restarting the session when this window closes; doing it per
- * click would rebuild the machine under someone still deciding. The display
- * options (TV aspect, smooth scaling) apply live and stay in the View menu.
+ * prefs.c. Every option it writes is read by colecosession_default_opts() at
+ * session start, so all of them are applied by restarting the session when
+ * the window closes; doing it per click would rebuild the machine under
+ * someone still deciding. The display options (TV aspect, smooth scaling)
+ * apply live and stay in the View menu.
  */
 
-static HWND g_settings_window;
-static int g_settings_dirty;
-
-static void settings_apply_checkbox(HWND hwnd, int id, const char *key,
-                                    int def)
+static void prefs_import_bios(HWND owner, int folder)
 {
-    int on = SendMessageA(GetDlgItem(hwnd, id), BM_GETCHECK, 0, 0) ==
-             BST_CHECKED;
-    if (colecosession_get_int(g_session, key, def) != on) {
-        colecosession_set_int(g_session, key, on);
-        g_settings_dirty = 1;
-    }
+    import_bios(owner, folder);
 }
 
-static LRESULT CALLBACK settings_proc(HWND hwnd, UINT msg, WPARAM wp,
-                                      LPARAM lp)
+static void prefs_closed(int dirty)
 {
-    switch (msg) {
-    case WM_COMMAND:
-        switch (LOWORD(wp)) {
-        case IDC_SET_HELP: coleco_help_for(hwnd); return 0;
-        case IDC_SET_PALETTE:
-            if (HIWORD(wp) == CBN_SELCHANGE) {
-                int sel = (int)SendMessageA(GetDlgItem(hwnd, IDC_SET_PALETTE),
-                                            CB_GETCURSEL, 0, 0);
-                if (colecosession_get_int(g_session, "palette", 0) != sel) {
-                    colecosession_set_int(g_session, "palette", sel);
-                    g_settings_dirty = 1;
-                }
-            }
-            return 0;
-        case IDC_SET_SGM:
-            settings_apply_checkbox(hwnd, IDC_SET_SGM, "sgm", 1);
-            return 0;
-        case IDC_SET_SWAP:
-            settings_apply_checkbox(hwnd, IDC_SET_SWAP, "swap_buttons", 0);
-            return 0;
-        case IDC_SET_FUJINET:
-            settings_apply_checkbox(hwnd, IDC_SET_FUJINET, "enable_fujinet", 1);
-            return 0;
-        case IDC_SET_EXTERNAL:
-            settings_apply_checkbox(hwnd, IDC_SET_EXTERNAL, "fujinet_external",
-                                    0);
-            EnableWindow(GetDlgItem(hwnd, IDC_SET_EXT_ADDR),
-                         SendDlgItemMessageA(hwnd, IDC_SET_EXTERNAL,
-                                             BM_GETCHECK, 0, 0) ==
-                             BST_CHECKED);
-            return 0;
-        case IDC_SET_AUDIO:
-            settings_apply_checkbox(hwnd, IDC_SET_AUDIO, "enable_audio", 1);
-            return 0;
-        case IDC_SET_GAMEPAD:
-            settings_apply_checkbox(hwnd, IDC_SET_GAMEPAD, "enable_gamepad", 1);
-            return 0;
-        case IDC_SET_IMPORT:
-            import_bios(hwnd, 0);
-            return 0;
-        case IDC_SET_IMPORT_FOLDER:
-            import_bios(hwnd, 1);
-            return 0;
-        default:
-            break;
-        }
-        break;
-    case WM_CLOSE: {
-        /* The external address is saved here, and only if it is one. */
-        char addr[96], host[64];
-        const char *old;
-        int port;
-        {
-            char *first = addr, *last;
-            GetDlgItemTextA(hwnd, IDC_SET_EXT_ADDR, addr, sizeof addr);
-            while (*first == ' ' || *first == '\t') first++;
-            memmove(addr, first, strlen(first) + 1);
-            last = addr + strlen(addr);
-            while (last > addr && (last[-1] == ' ' || last[-1] == '\t'))
-                *--last = '\0';
-        }
-        if (SendDlgItemMessageA(hwnd, IDC_SET_EXTERNAL, BM_GETCHECK, 0, 0) ==
-                BST_CHECKED &&
-            colecosession_parse_hostport(addr, host, sizeof host, &port) != 0) {
-            MessageBoxA(hwnd, "That is not an address:port.\n\nExample: "
-                        "127.0.0.1:11502", "External FujiNet", MB_ICONWARNING);
-            SetFocus(GetDlgItem(hwnd, IDC_SET_EXT_ADDR));
-            return 0;
-        }
-        old = colecosession_get_str(g_session, "fujinet_external_addr", "");
-        if (colecosession_parse_hostport(addr, host, sizeof host, &port) == 0 &&
-            strcmp(old, addr) != 0) {
-            colecosession_set_str(g_session, "fujinet_external_addr", addr);
-            g_settings_dirty = 1;
-        }
-        DestroyWindow(hwnd);
-        return 0;
-    }
-    case WM_DESTROY:
-        g_settings_window = NULL;
-        if (g_settings_dirty) {
-            g_settings_dirty = 0;
-            restart_session();
-        }
-        return 0;
-    }
-    return DefWindowProcA(hwnd, msg, wp, lp);
+    if (!dirty) return;
+    restart_session();
+    coleco_controllers_window_refresh();
 }
 
-static HWND settings_checkbox(HWND parent, HINSTANCE inst, const char *text,
-                              int id, int y, int checked)
+static void show_settings(void)
 {
-    HWND h = CreateWindowExA(0, "BUTTON", text,
-                             WS_CHILD | WS_VISIBLE | BS_AUTOCHECKBOX, 16, y,
-                             340, 22, parent, (HMENU)(INT_PTR)id, inst, NULL);
-    SendMessageA(h, BM_SETCHECK, checked ? BST_CHECKED : BST_UNCHECKED, 0);
-    SendMessageA(h, WM_SETFONT, (WPARAM)GetStockObject(DEFAULT_GUI_FONT), TRUE);
-    return h;
-}
-
-static void settings_label(HWND parent, HINSTANCE inst, const char *text,
-                           int y, int h)
-{
-    HWND w = CreateWindowExA(0, "STATIC", text, WS_CHILD | WS_VISIBLE, 16, y,
-                             360, h, parent, NULL, inst, NULL);
-    SendMessageA(w, WM_SETFONT, (WPARAM)GetStockObject(DEFAULT_GUI_FONT), TRUE);
-}
-
-static void settings_refresh_roms(void)
-{
-    if (!g_settings_window) return;
-    SetDlgItemTextA(g_settings_window, IDC_SET_ROM_STATE,
-                    colecosession_bios_available(g_session) ? "Imported"
-                                                            : "Not imported");
-}
-
-static void show_settings(HINSTANCE inst)
-{
-    /* Same order as every other frontend: the index is what goes into the
-     * shared settings store. */
-    static const char *const palette_names[] = {
-        "Default (TMS9928A)", "Palette 2", "Palette 3", "Palette 4"
-    };
-    HFONT font = (HFONT)GetStockObject(DEFAULT_GUI_FONT);
-    HWND combo;
-    int y = 12, i;
-
-    if (g_settings_window) {
-        SetForegroundWindow(g_settings_window);
-        return;
-    }
-    {
-        static int registered;
-        if (!registered) {
-            WNDCLASSA wc;
-            memset(&wc, 0, sizeof(wc));
-            wc.lpfnWndProc = settings_proc;
-            wc.hInstance = inst;
-            wc.hCursor = LoadCursor(NULL, IDC_ARROW);
-            wc.hbrBackground = (HBRUSH)(COLOR_BTNFACE + 1);
-            wc.lpszClassName = "ColecoSettingsWindow";
-            RegisterClassA(&wc);
-            registered = 1;
-        }
-    }
-    g_settings_window = CreateWindowA(
-        "ColecoSettingsWindow", "Settings",
-        WS_OVERLAPPEDWINDOW & ~(WS_MAXIMIZEBOX | WS_THICKFRAME),
-        CW_USEDEFAULT, CW_USEDEFAULT, 400, 640, NULL, NULL, inst, NULL);
-
-    settings_label(g_settings_window, inst, "Machine", y, 18);
-    y += 24;
-    settings_checkbox(g_settings_window, inst, "Super Game Module (Opcode SGM)",
-                      IDC_SET_SGM, y,
-                      colecosession_get_int(g_session, "sgm", 1));
-    y += 28;
-
-    settings_label(g_settings_window, inst, "Palette:", y + 3, 18);
-    combo = CreateWindowExA(
-        0, "COMBOBOX", "",
-        WS_CHILD | WS_VISIBLE | CBS_DROPDOWNLIST | WS_VSCROLL, 90, y, 250, 200,
-        g_settings_window, (HMENU)(INT_PTR)IDC_SET_PALETTE, inst, NULL);
-    for (i = 0; i < (int)(sizeof(palette_names) / sizeof(palette_names[0])); i++)
-        SendMessageA(combo, CB_ADDSTRING, 0, (LPARAM)palette_names[i]);
-    SendMessageA(combo, CB_SETCURSEL,
-                 (WPARAM)colecosession_get_int(g_session, "palette", 0), 0);
-    SendMessageA(combo, WM_SETFONT, (WPARAM)font, TRUE);
-    y += 32;
-
-    settings_checkbox(g_settings_window, inst, "Swap controller buttons",
-                      IDC_SET_SWAP, y,
-                      colecosession_get_int(g_session, "swap_buttons", 0));
-    y += 34;
-
-    settings_label(g_settings_window, inst, "FujiNet", y, 18);
-    y += 24;
-    settings_checkbox(g_settings_window, inst, "Enable FujiNet",
-                      IDC_SET_FUJINET, y,
-                      colecosession_get_int(g_session, "enable_fujinet", 1));
-    y += 28;
-    settings_checkbox(g_settings_window, inst, "Use external FujiNet",
-                      IDC_SET_EXTERNAL, y,
-                      colecosession_get_int(g_session, "fujinet_external", 0));
-    y += 28;
-    settings_label(g_settings_window, inst, "Address:port:", y + 3, 18);
-    {
-        HWND edit = CreateWindowExA(
-            WS_EX_CLIENTEDGE, "EDIT",
-            colecosession_get_str(g_session, "fujinet_external_addr", ""),
-            WS_CHILD | WS_VISIBLE | WS_TABSTOP | ES_AUTOHSCROLL, 110, y, 230,
-            22, g_settings_window, (HMENU)(INT_PTR)IDC_SET_EXT_ADDR, inst,
-            NULL);
-        SendMessageA(edit, WM_SETFONT, (WPARAM)font, TRUE);
-        SendMessageA(edit, EM_SETCUEBANNER, FALSE, (LPARAM)L"127.0.0.1:11502");
-        EnableWindow(edit, colecosession_get_int(g_session, "fujinet_external",
-                                                 0) != 0);
-    }
-    y += 34;
-
-    settings_label(g_settings_window, inst, "Host", y, 18);
-    y += 24;
-    settings_checkbox(g_settings_window, inst, "Audio", IDC_SET_AUDIO, y,
-                      colecosession_get_int(g_session, "enable_audio", 1));
-    y += 28;
-    settings_checkbox(g_settings_window, inst, "Gamepads", IDC_SET_GAMEPAD, y,
-                      colecosession_get_int(g_session, "enable_gamepad", 1));
-    y += 32;
-
-    settings_label(g_settings_window, inst, "ROMs", y, 18);
-    y += 24;
-    settings_label(g_settings_window, inst,
-                   "The BIOS is not part of the app. Import your own OS7.rom "
-                   "from a file, a zip (MAME's coleco.zip works) or a folder; "
-                   "it is recognised by size and checksum, whatever it is "
-                   "named. Kept in:", y, 52);
-    y += 56;
-    {
-        char rp[1100];
-        HWND h;
-        char *c;
-        snprintf(rp, sizeof rp, "%s", colecosession_roms_path(g_session));
-        for (c = rp; *c; c++)
-            if (*c == '/') *c = '\\';
-        h = CreateWindowExA(0, "STATIC", rp,
-                            WS_CHILD | WS_VISIBLE | SS_LEFT | SS_NOPREFIX |
-                                SS_PATHELLIPSIS,
-                            16, y, 360, 18, g_settings_window,
-                            (HMENU)(INT_PTR)IDC_SET_ROM_PATH, inst, NULL);
-        SendMessageA(h, WM_SETFONT, (WPARAM)font, TRUE);
-        y += 26;
-        h = CreateWindowExA(0, "BUTTON", "Import BIOS...",
-                            WS_CHILD | WS_VISIBLE | WS_TABSTOP, 16, y, 130,
-                            24, g_settings_window,
-                            (HMENU)(INT_PTR)IDC_SET_IMPORT, inst, NULL);
-        SendMessageA(h, WM_SETFONT, (WPARAM)font, TRUE);
-        h = CreateWindowExA(0, "BUTTON", "Import from a Folder...",
-                            WS_CHILD | WS_VISIBLE | WS_TABSTOP, 154, y, 180,
-                            24, g_settings_window,
-                            (HMENU)(INT_PTR)IDC_SET_IMPORT_FOLDER, inst, NULL);
-        SendMessageA(h, WM_SETFONT, (WPARAM)font, TRUE);
-        y += 36;
-        settings_label(g_settings_window, inst,
-                       "ColecoVision BIOS (OS7.rom)", y, 18);
-        h = CreateWindowExA(0, "STATIC", "",
-                            WS_CHILD | WS_VISIBLE | SS_RIGHT | SS_NOPREFIX,
-                            266, y, 110, 18, g_settings_window,
-                            (HMENU)(INT_PTR)IDC_SET_ROM_STATE, inst, NULL);
-        SendMessageA(h, WM_SETFONT, (WPARAM)font, TRUE);
-        y += 32;
-    }
-    settings_refresh_roms();
-
-    settings_label(g_settings_window, inst,
-                   "Applied by restarting the session when this window "
-                   "closes.", y, 32);
-    y += 36;
-    {
-        HWND hb = CreateWindowExA(0, "BUTTON", "Help", WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_PUSHBUTTON,
-                                  16, y, 80, 26, g_settings_window,
-                                  (HMENU)(INT_PTR)IDC_SET_HELP, inst, NULL);
-        SendMessageA(hb, WM_SETFONT, (WPARAM)font, TRUE);
-        coleco_help_set_context(g_settings_window, "prefs/Machine", 1);
-    }
-
-    ShowWindow(g_settings_window, SW_SHOW);
+    static const coleco_prefs_hooks hooks = { prefs_import_bios, prefs_closed };
+    coleco_prefs_show(g_hwnd, g_session, &hooks);
 }
 
 /* ---- FujiNet console log ---------------------------------------------------
@@ -792,7 +565,7 @@ static void show_fujinet_log(HINSTANCE inst)
 
 /* ---- window --------------------------------------------------------------- */
 
-static LRESULT CALLBACK wndproc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp)
+static LRESULT CALLBACK wndproc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam)
 {
     switch (msg) {
     case WM_PAINT: {
@@ -805,41 +578,85 @@ static LRESULT CALLBACK wndproc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp)
     case WM_ERASEBKGND:
         return 1;  /* paint() fills it; erasing first would flicker */
 
-    case WM_KEYDOWN: {
-        uint32_t ks;
-        int sa;
-        if (wp == VK_F9) {
-            coleco_keypad_window_toggle(hwnd, g_session);
+    /* WM_SYSKEY* as well: Windows reports Alt -- and every key pressed while
+     * it is down -- as a system key. One that drives the console (a bound
+     * key, Left Alt by default) is the console's; the rest (Alt+F4, the menu
+     * mnemonics, Alt+Esc) stay Windows'. */
+    case WM_KEYDOWN: case WM_SYSKEYDOWN: {
+        uint32_t keysym;
+        int sysact;
+        if (coleco_controllers_map_key(msg, wparam, lparam)) return 0;
+        if (wparam == VK_F9) {
+            if (!(lparam & (1 << 30))) coleco_controllers_window_toggle(hwnd, g_session);
             return 0;
         }
-        if (wp == VK_F12) {
-            coleco_debugger_show(hwnd, g_session);
+        if (wparam == VK_F12) {
+            if (!(lparam & (1 << 30))) coleco_debugger_show(hwnd, g_session);
             return 0;
         }
-        if (lp & (1 << 30)) return 0;  /* auto-repeat: the key is already held */
-        ks = coleco_keysym_from_vk((int)wp);
-        if (!ks) break;
-        sa = coleco_input_key_sysaction(ks);
-        if (sa >= 0) { colecosession_sysaction(g_session, sa); return 0; }
-        if (coleco_input_key(&g_input, ks, 1)) { push_input(); return 0; }
+        /* Ctrl+Shift+H is the Help's, taken before the message reaches here */
+        if (msg == WM_KEYDOWN && coleco_app_key(wparam)) return 0;
+        if (msg == WM_SYSKEYDOWN) {
+            /* the app's own actions never fire from a system key: Alt+Esc
+             * is Windows' */
+            if (coleco_forward_key(g_session, msg, wparam, lparam)) return 0;
+            break;
+        }
+        keysym = coleco_keysym_from_msg(wparam, lparam);
+        if (!keysym) break;
+        /* The Reset keys first, on the leading edge only, whatever modifiers
+         * are down (Left Ctrl is Fire). Then the console, through the bindings. */
+        sysact = colecosession_key_sysaction(g_session, keysym);
+        if (sysact >= 0) {
+            if (!(lparam & (1 << 30)) && !g_sysact_down[sysact]) {
+                g_sysact_down[sysact] = 1;
+                run_sysaction(sysact);
+            }
+            return 0;
+        }
+        if (coleco_forward_key(g_session, msg, wparam, lparam)) return 0;
         break;
     }
-    case WM_KEYUP: {
-        uint32_t ks = coleco_keysym_from_vk((int)wp);
-        if (ks && coleco_input_key(&g_input, ks, 0)) { push_input(); return 0; }
+    case WM_KEYUP: case WM_SYSKEYUP: {
+        uint32_t keysym;
+        int sysact;
+        if (coleco_controllers_map_key(msg, wparam, lparam)) return 0;
+        keysym = coleco_keysym_from_msg(wparam, lparam);
+        if (!keysym) break;
+        sysact = colecosession_key_sysaction(g_session, keysym);
+        if (sysact >= 0) { g_sysact_down[sysact] = 0; return 0; }
+        /* A bound Alt's release stops here, so it does not also put the menu
+         * bar into keyboard mode. */
+        if (coleco_forward_key(g_session, msg, wparam, lparam)) return 0;
         break;
     }
+    case WM_ENTERMENULOOP:
+        /* The menu takes the keyboard: whatever was held lets go now rather
+         * than staying down until the key is pressed again. */
+        colecosession_release_all(g_session);
+        memset(g_sysact_down, 0, sizeof g_sysact_down);
+        break;
     case WM_ACTIVATE:
-        if (LOWORD(wp) == WA_INACTIVE) {
+        if (LOWORD(wparam) == WA_INACTIVE) {
             /* Windows eats the key-up when focus leaves, so without this the
              * machine believes whatever was held is still down. */
-            coleco_input_reset(&g_input);
-            push_input();
+            colecosession_release_all(g_session);
+            memset(g_sysact_down, 0, sizeof g_sysact_down);
+        }
+        return 0;
+
+    case WM_TIMER:
+        if (wparam == IDT_MAIN) {
+            int sysact;
+            while (colecosession_sysaction_take(g_session, &sysact))
+                run_sysaction(sysact);
+            poll_gamepads();
+            notice_tick();
         }
         return 0;
 
     case WM_COMMAND:
-        switch (LOWORD(wp)) {
+        switch (LOWORD(wparam)) {
         case IDM_OPEN:
             pick_cart();
             return 0;
@@ -848,16 +665,16 @@ static LRESULT CALLBACK wndproc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp)
             colecosession_settings_flush(g_session);
             colecosession_reset_to_config(g_session);
             return 0;
-        case IDM_RESET: colecosession_reset(g_session); return 0;
-        case IDM_RESET_CONFIG: colecosession_reset_to_config(g_session); return 0;
+        case IDM_RESET: run_sysaction(COLECO_SYSACT_RESET); return 0;
+        case IDM_RESET_CONFIG: run_sysaction(COLECO_SYSACT_RESET_CONFIG); return 0;
         case IDM_IMPORT_BIOS:
             import_bios(hwnd, 0);
             return 0;
         case IDM_IMPORT_FOLDER:
             import_bios(hwnd, 1);
             return 0;
-        case IDM_KEYPAD:
-            coleco_keypad_window_toggle(hwnd, g_session);
+        case IDM_CONTROLLERS:
+            coleco_controllers_window_toggle(hwnd, g_session);
             return 0;
         case IDM_DEBUGGER:
             coleco_debugger_show(hwnd, g_session);
@@ -900,7 +717,7 @@ static LRESULT CALLBACK wndproc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp)
             return 0;
         }
         case IDM_SETTINGS:
-            show_settings((HINSTANCE)GetWindowLongPtr(hwnd, GWLP_HINSTANCE));
+            show_settings();
             return 0;
         case IDM_FUJINET_LOG:
             show_fujinet_log((HINSTANCE)GetWindowLongPtr(hwnd, GWLP_HINSTANCE));
@@ -930,7 +747,7 @@ static LRESULT CALLBACK wndproc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp)
 
     case WM_DROPFILES: {
         char path[MAX_PATH];
-        HDROP drop = (HDROP)wp;
+        HDROP drop = (HDROP)wparam;
         UINT i, count = DragQueryFile(drop, 0xFFFFFFFFu, NULL, 0);
         for (i = 0; i < count; i++)
             if (DragQueryFile(drop, i, path, sizeof path))
@@ -940,11 +757,13 @@ static LRESULT CALLBACK wndproc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp)
     }
 
     case WM_DESTROY:
+        coleco_prefs_abandon();
+        KillTimer(hwnd, IDT_MAIN);
         PostQuitMessage(0);
         return 0;
     default: break;
     }
-    return DefWindowProc(hwnd, msg, wp, lp);
+    return DefWindowProc(hwnd, msg, wparam, lparam);
 }
 
 int WINAPI WinMain(HINSTANCE inst, HINSTANCE prev, LPSTR cmdline, int show)
@@ -981,7 +800,6 @@ int WINAPI WinMain(HINSTANCE inst, HINSTANCE prev, LPSTR cmdline, int show)
     g_bmi.bmiHeader.biBitCount = 32;
     g_bmi.bmiHeader.biCompression = BI_RGB;
 
-    coleco_input_reset(&g_input);
     g_tv_aspect = colecosession_get_int(g_session, "tv_aspect", 1);
     g_smooth = colecosession_get_int(g_session, "smooth", 0);
 
@@ -997,7 +815,7 @@ int WINAPI WinMain(HINSTANCE inst, HINSTANCE prev, LPSTR cmdline, int show)
     RegisterClassEx(&wc);
 
     g_hwnd = CreateWindowEx(
-        WS_EX_ACCEPTFILES, WIN_CLASS, "FujiNet Go ColecoVision",
+        WS_EX_ACCEPTFILES, WIN_CLASS, APP_TITLE,
         WS_OVERLAPPEDWINDOW, CW_USEDEFAULT, CW_USEDEFAULT, 848, 660,
         NULL, NULL, inst, NULL);
     if (!g_hwnd) return 1;
@@ -1027,13 +845,20 @@ int WINAPI WinMain(HINSTANCE inst, HINSTANCE prev, LPSTR cmdline, int show)
 
     /* The family's launch hooks: the way in when the app misbehaves before a
      * menu is reachable, and how a headless check can look at either panel. */
+    g_pad_generation = colecosession_gamepad_generation(g_session);
+    SetTimer(g_hwnd, IDT_MAIN, 50, NULL);
     {
-        const char *env = getenv("COLECO_OPEN_KEYPAD");
+        /* COLECO_OPEN_KEYPAD is the old name of COLECO_OPEN_CONTROLLERS */
+        const char *env = getenv("COLECO_OPEN_CONTROLLERS");
+        if (!env || !*env) env = getenv("COLECO_OPEN_KEYPAD");
         if (env && *env && *env != '0')
-            coleco_keypad_window_toggle(g_hwnd, g_session);
+            coleco_controllers_window_toggle(g_hwnd, g_session);
         env = getenv("COLECO_OPEN_DEBUGGER");
         if (env && *env && *env != '0')
             coleco_debugger_show(g_hwnd, g_session);
+        env = getenv("COLECO_OPEN_SETTINGS");
+        if (env && *env && *env != '0')
+            show_settings();
     }
 
     g_present_thread = CreateThread(NULL, 0, present_thread, NULL, 0, NULL);
@@ -1041,6 +866,8 @@ int WINAPI WinMain(HINSTANCE inst, HINSTANCE prev, LPSTR cmdline, int show)
     while (GetMessage(&msg, NULL, 0, 0) > 0) {
         /* Before TranslateMessage, so the debugger's F5/F7/F8 accelerators
          * work even while one of its edit fields has the focus. */
+        if (coleco_prefs_pretranslate(&msg))      /* first: it is a dialog's keys */
+            continue;
         if (coleco_debugger_pretranslate(&msg))
             continue;
         if (coleco_help_pretranslate(&msg))

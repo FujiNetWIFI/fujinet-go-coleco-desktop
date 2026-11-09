@@ -11,7 +11,7 @@
 #define IDM_IMPORT_BIOS    1005
 #define IDM_IMPORT_FOLDER  1007
 #define IDM_EXIT           1006
-#define IDM_KEYPAD         1010
+#define IDM_CONTROLLERS    1010
 #define IDM_DEBUGGER       1013
 #define IDM_TV_ASPECT      1011
 #define IDM_SMOOTH         1012
@@ -20,23 +20,7 @@
 #define IDM_ABOUT          1040
 #define IDM_HELP           1041
 
-/* Controls inside the settings window. */
-#define IDC_SET_SGM        2001
-#define IDC_SET_PALETTE    2002
-#define IDC_SET_SWAP       2003
-#define IDC_SET_FUJINET    2004
-#define IDC_SET_AUDIO      2005
-#define IDC_SET_GAMEPAD    2006
-#define IDC_SET_NOTE       2007
-#define IDC_SET_EXTERNAL   2008
-#define IDC_SET_EXT_ADDR   2009
-#define IDC_SET_ROM_PATH   2010
-#define IDC_SET_IMPORT     2011
-#define IDC_SET_IMPORT_FOLDER 2012
-#define IDC_SET_ROM_STATE  2013
-
 #define IDM_FUJINET_LOG    1021
 #define IDC_LOG_EDIT       2100
 #define IDC_LOG_HELP       2101
-#define IDC_SET_HELP       2102
 #define IDT_LOG_REFRESH    1
