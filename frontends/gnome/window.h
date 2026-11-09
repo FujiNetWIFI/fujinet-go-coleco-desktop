@@ -14,11 +14,28 @@ G_DECLARE_FINAL_TYPE(ColecoWindow, coleco_window, COLECO, WINDOW,
 
 /* Installs the display-wide accent CSS once (COLECOSESSION_ACCENT_RGB, the
  * icon's colour, with white text): the class "coleco-accent" marks a button
- * as highlighted -- the keypad's Map and remap targets, the primary button in
+ * as highlighted -- the Controllers window's Map, the primary button in
  * Preferences. Call before the first window is made. */
 void coleco_css_install(void);
 
 GtkWidget *coleco_window_new(AdwApplication *app, colecosession *session);
+
+/* A toast over the display (the hot-plug events, console actions). */
+void coleco_window_toast(ColecoWindow *self, const char *text);
+
+/* The one keyboard path: the main window's own key handler and the
+ * Controllers window's both end here, so the console, F9 (Controllers), F12
+ * (Debugger) and the console actions behave the same whichever window has the
+ * focus. `keycode` is the GDK hardware keycode. Returns whether the key was
+ * consumed. */
+gboolean coleco_window_key(ColecoWindow *self, guint keyval, guint keycode,
+                           GdkModifierType state, gboolean down);
+
+/* Runs a COLECO_SYSACT_* with its toast. UI thread. */
+void coleco_window_run_sysaction(ColecoWindow *self, int sysact);
+
+/* Lets go of every key the keyboard holds (focus loss). */
+void coleco_window_release_keys(ColecoWindow *self);
 
 /* The Help context the main window shows now: "main", or "prefs/<page>"
  * while Preferences is open. */

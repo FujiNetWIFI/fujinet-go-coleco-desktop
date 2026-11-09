@@ -2,11 +2,10 @@
  * window.c -- the main window: the display, a header-bar menu, keyboard
  * capture, and the first-run BIOS gate.
  *
- * Keyboard events are translated to X11/xkb keysyms and handed to the
- * session's pure input table. A GDK keyval already IS an xkb keysym, so this
- * frontend passes them through unchanged -- the Qt and Win32 frontends map
- * through a small table to reach the same place, which is what lets one
- * tested table serve all four.
+ * Keyboard events are translated to X11/xkb keysyms by the hardware key
+ * (the evdev code through the session's table, so the numeric keypad is the
+ * numeric keypad whatever NumLock says) and handed to the session's bindings.
+ * The Controllers window sends its typed keys through coleco_window_key too.
  *
  * Copyright (C) 2026 Thomas Cherryhomes
  * SPDX-License-Identifier: GPL-3.0-or-later
@@ -19,7 +18,7 @@
 #include "help/help_window.h"
 #include "prefs.h"
 #include "debugger/dbg_window.h"
-#include "keypad/keypad_window.h"
+#include "controllers/controllers_window.h"
 
 #include <string.h>
 
@@ -30,8 +29,10 @@ struct _ColecoWindow {
     GtkWidget *display;
     GtkWidget *toast_overlay;
     GtkWidget *status;          /* the FujiNet link indicator */
-    coleco_input_state input;
     guint status_id;
+    guint sysact_id;            /* the 50 ms drain: console actions, pad toasts */
+    gboolean sysact_down[COLECO_SYSACT_COUNT];  /* leading edge of a held key */
+    unsigned pad_generation;    /* the pad set the last toast was for */
     AdwDialog *bios_alert;      /* the "needs the BIOS" alert while it is up */
 };
 
@@ -80,7 +81,7 @@ void coleco_css_install(void)
     g_object_unref(provider);
 }
 
-static void push_toast(ColecoWindow *self, const char *text)
+void coleco_window_toast(ColecoWindow *self, const char *text)
 {
     adw_toast_overlay_add_toast(ADW_TOAST_OVERLAY(self->toast_overlay),
                                 adw_toast_new(text));
@@ -114,7 +115,7 @@ static int power_cycle(ColecoWindow *self)
         if (!colecosession_bios_available(self->session))
             show_bios_needed(self);
         else
-            push_toast(self, colecosession_last_error(self->session));
+            coleco_window_toast(self, colecosession_last_error(self->session));
         return -1;
     }
     return 0;
@@ -308,15 +309,99 @@ static gboolean bios_gate_idle(gpointer user_data)
 
 /* ---- input ---------------------------------------------------------------- */
 
-/* Push both ports every time. The controller word is a snapshot of everything
- * held, so sending only the port that changed would be an optimisation with a
- * bug in it the first time a key on each port is held at once. */
-static void push_input(ColecoWindow *self)
+/* The hardware key first; a keyval only for a key evdev has no HID usage for
+ * (rare: media keys). */
+static guint32 keysym_of(guint keyval, guint keycode)
 {
-    colecosession_joystick_raw(self->session, 0,
-                               coleco_input_word(&self->input, 0));
-    colecosession_joystick_raw(self->session, 1,
-                               coleco_input_word(&self->input, 1));
+    const guint32 keysym = keycode >= 8 ? colecosession_keysym_from_evdev(keycode - 8) : 0;
+    return keysym ? keysym : keyval;
+}
+
+/* A console action from a key, a pad button, the Controllers window's strip or
+ * the menu. UI thread. */
+void coleco_window_run_sysaction(ColecoWindow *self, int sysact)
+{
+    switch (sysact) {
+    case COLECO_SYSACT_RESET:
+        colecosession_sysaction(self->session, sysact);
+        coleco_window_toast(self, "Console reset");
+        break;
+    case COLECO_SYSACT_RESET_CONFIG:
+        colecosession_sysaction(self->session, sysact);
+        coleco_window_toast(self, "Back to the FujiNet CONFIG client");
+        break;
+    default:
+        break;
+    }
+}
+
+/* An open dialog (Preferences, About, an alert) or menu has the keyboard:
+ * Escape closes it and the arrows and Return move through it, instead of
+ * driving the machine. The key capture sits on the window, ahead of them. */
+static gboolean ui_has_keyboard(ColecoWindow *self)
+{
+    GtkWidget *focus = gtk_root_get_focus(GTK_ROOT(self));
+    if (adw_application_window_get_visible_dialog(ADW_APPLICATION_WINDOW(self)))
+        return TRUE;
+    return focus && gtk_widget_get_ancestor(focus, GTK_TYPE_POPOVER) != NULL;
+}
+
+/* The one key path: the main window and the Controllers window both end here,
+ * so the console, F9, F12 and the console actions behave the same whichever
+ * has the focus. Returns whether the key was consumed. */
+gboolean coleco_window_key(ColecoWindow *self, guint keyval, guint keycode,
+                           GdkModifierType state, gboolean down)
+{
+    guint32 keysym;
+    int sysact;
+
+    (void)state;
+    if (!down) {
+        if (keyval == GDK_KEY_F9 || keyval == GDK_KEY_F12)
+            return TRUE;
+        keysym = keysym_of(keyval, keycode);
+        if (ui_has_keyboard(self)) {
+            /* still let go of a machine key held into the dialog */
+            colecosession_key(self->session, keysym, 0);
+            return FALSE;
+        }
+        sysact = colecosession_key_sysaction(self->session, keysym);
+        if (sysact >= 0) {
+            self->sysact_down[sysact] = FALSE;
+            return TRUE;
+        }
+        return colecosession_key(self->session, keysym, 0) ? TRUE : FALSE;
+    }
+
+    if (ui_has_keyboard(self))
+        return FALSE;
+
+    /* The window's own keys, deliberately not bindable: they are how you
+     * reach the panels that do the binding. */
+    if (keyval == GDK_KEY_F9) {
+        coleco_controllers_toggle(GTK_WINDOW(self), self->session);
+        return TRUE;
+    }
+    if (keyval == GDK_KEY_F12) {
+        coleco_debugger_show(GTK_WINDOW(self), self->session);
+        return TRUE;
+    }
+    /* Neither Ctrl nor Alt is a modifier here: Left Ctrl is Controller 1's
+     * Left Fire and Left Alt Right Fire, so steering with one held must
+     * reach the console. A Ctrl chord with an unbound key is not taken
+     * (colecosession_key returns 0) and the menu accelerators get it. */
+    keysym = keysym_of(keyval, keycode);
+    /* A console action is checked BEFORE the machine keys, on the leading
+     * edge only: GTK4 has no repeat flag. */
+    sysact = colecosession_key_sysaction(self->session, keysym);
+    if (sysact >= 0) {
+        if (!self->sysact_down[sysact]) {
+            self->sysact_down[sysact] = TRUE;
+            coleco_window_run_sysaction(self, sysact);
+        }
+        return TRUE;
+    }
+    return colecosession_key(self->session, keysym, 1) ? TRUE : FALSE;
 }
 
 static gboolean on_key_pressed(GtkEventControllerKey *ctrl, guint keyval,
@@ -324,8 +409,7 @@ static gboolean on_key_pressed(GtkEventControllerKey *ctrl, guint keyval,
                                gpointer user_data)
 {
     ColecoWindow *self = user_data;
-    int sysact;
-    (void)ctrl; (void)keycode;
+    (void)ctrl;
 
     /* F1 is Help while Preferences or another dialog is open */
     if (keyval == GDK_KEY_F1 && adw_application_window_get_visible_dialog(ADW_APPLICATION_WINDOW(self)) &&
@@ -333,43 +417,23 @@ static gboolean on_key_pressed(GtkEventControllerKey *ctrl, guint keyval,
         coleco_help_for(GTK_WINDOW(self));
         return TRUE;
     }
-
-    /* F9 belongs to the window, not the machine, and is deliberately not
-     * bindable: it is how you reach the panel that does the binding. */
-    if (keyval == GDK_KEY_F9) {
-        coleco_keypad_window_toggle(GTK_WINDOW(self), self->session);
-        return TRUE;
-    }
-    if (keyval == GDK_KEY_F12) {
-        coleco_debugger_show(GTK_WINDOW(self), self->session);
-        return TRUE;
-    }
-    sysact = coleco_input_key_sysaction(keyval);
-    if (sysact >= 0) {
-        colecosession_sysaction(self->session, sysact);
-        return TRUE;
-    }
-    if (coleco_input_key(&self->input, keyval, 1)) {
-        push_input(self);
-        return TRUE;
-    }
-    return FALSE;
+    return coleco_window_key(self, keyval, keycode, state, TRUE);
 }
 
 static gboolean on_key_released(GtkEventControllerKey *ctrl, guint keyval,
                                 guint keycode, GdkModifierType state,
                                 gpointer user_data)
 {
-    ColecoWindow *self = user_data;
-    (void)ctrl; (void)keycode; (void)state;
+    (void)ctrl;
+    return coleco_window_key(user_data, keyval, keycode, state, FALSE);
+}
 
-    if (keyval == GDK_KEY_F9 || keyval == GDK_KEY_F12) return TRUE;
-    if (coleco_input_key_sysaction(keyval) >= 0) return TRUE;
-    if (coleco_input_key(&self->input, keyval, 0)) {
-        push_input(self);
-        return TRUE;
-    }
-    return FALSE;
+/* Lets go of every key the keyboard holds (the mouse's and the pads' are
+ * their own sources). */
+void coleco_window_release_keys(ColecoWindow *self)
+{
+    colecosession_release_all(self->session);
+    memset(self->sysact_down, 0, sizeof self->sysact_down);
 }
 
 /* Losing focus with keys held would leave the machine believing they are
@@ -377,10 +441,29 @@ static gboolean on_key_released(GtkEventControllerKey *ctrl, guint keyval,
  * into a wall is the classic symptom. */
 static void on_focus_leave(GtkEventControllerFocus *ctrl, gpointer user_data)
 {
-    ColecoWindow *self = user_data;
     (void)ctrl;
-    coleco_input_reset(&self->input);
-    push_input(self);
+    coleco_window_release_keys(user_data);
+}
+
+/* Every 50 ms: the console actions the gamepad thread posted (it cannot call
+ * into the toolkit), and a toast when a pad comes or goes. */
+static gboolean sysact_drain_tick(gpointer user_data)
+{
+    ColecoWindow *self = user_data;
+    unsigned gen;
+    int sysact;
+
+    while (colecosession_sysaction_take(self->session, &sysact))
+        coleco_window_run_sysaction(self, sysact);
+
+    gen = colecosession_gamepad_generation(self->session);
+    if (gen != self->pad_generation) {
+        char text[160];
+        self->pad_generation = gen;
+        if (colecosession_gamepad_last_event(self->session, text, sizeof text) > 0)
+            coleco_window_toast(self, text);
+    }
+    return G_SOURCE_CONTINUE;
 }
 
 /* ---- status --------------------------------------------------------------- */
@@ -421,14 +504,14 @@ void coleco_window_load_media(ColecoWindow *self, const char *path)
         return;
     }
     if (colecosession_import_media(self->session, path, dest, sizeof dest) != 0) {
-        push_toast(self, colecosession_last_error(self->session));
+        coleco_window_toast(self, colecosession_last_error(self->session));
         return;
     }
     if (!colecosession_media_is_cartridge(dest)) {
         g_snprintf(msg, sizeof msg,
                    "Copied to FujiNet's SD folder \xe2\x80\x94 mount it from "
                    "the CONFIG client");
-        push_toast(self, msg);
+        coleco_window_toast(self, msg);
         return;
     }
 
@@ -439,7 +522,7 @@ void coleco_window_load_media(ColecoWindow *self, const char *path)
     g_snprintf(msg, sizeof msg, "Running %s", strrchr(dest, '/')
                                                   ? strrchr(dest, '/') + 1
                                                   : dest);
-    push_toast(self, msg);
+    coleco_window_toast(self, msg);
 }
 
 static void on_cart_chosen(GObject *src, GAsyncResult *res, gpointer user_data)
@@ -488,7 +571,7 @@ static void action_eject(GSimpleAction *a, GVariant *p, gpointer user_data)
     colecosession_set_str(self->session, "cart_path", "");
     colecosession_settings_flush(self->session);
     colecosession_reset_to_config(self->session);
-    push_toast(self, "Cartridge ejected");
+    coleco_window_toast(self, "Cartridge ejected");
 }
 
 /* Drag-and-drop, on the display where a cartridge visibly goes. */
@@ -506,11 +589,11 @@ static gboolean on_drop(GtkDropTarget *t, const GValue *value, double x,
     return TRUE;
 }
 
-static void action_keypad(GSimpleAction *a, GVariant *p, gpointer user_data)
+static void action_controllers(GSimpleAction *action, GVariant *param, gpointer user_data)
 {
     ColecoWindow *self = user_data;
-    (void)a; (void)p;
-    coleco_keypad_window_toggle(GTK_WINDOW(self), self->session);
+    (void)action; (void)param;
+    coleco_controllers_toggle(GTK_WINDOW(self), self->session);
 }
 
 static void action_debugger(GSimpleAction *a, GVariant *p, gpointer user_data)
@@ -525,16 +608,14 @@ static void action_reset_config(GSimpleAction *a, GVariant *p,
 {
     ColecoWindow *self = user_data;
     (void)a; (void)p;
-    colecosession_reset_to_config(self->session);
-    push_toast(self, "Back to the FujiNet CONFIG client");
+    coleco_window_run_sysaction(self, COLECO_SYSACT_RESET_CONFIG);
 }
 
 static void action_reset(GSimpleAction *a, GVariant *p, gpointer user_data)
 {
     ColecoWindow *self = user_data;
     (void)a; (void)p;
-    colecosession_reset(self->session);
-    push_toast(self, "Console reset");
+    coleco_window_run_sysaction(self, COLECO_SYSACT_RESET);
 }
 
 static void action_fujinet_config(GSimpleAction *a, GVariant *p,
@@ -545,11 +626,11 @@ static void action_fujinet_config(GSimpleAction *a, GVariant *p,
     (void)a; (void)p;
 
     if (colecosession_fujinet_external(self->session)) {
-        push_toast(self, "FujiNet is external: use its own web UI");
+        coleco_window_toast(self, "FujiNet is external: use its own web UI");
         return;
     }
     if (!colecosession_fujinet_running(self->session)) {
-        push_toast(self, "FujiNet is not running");
+        coleco_window_toast(self, "FujiNet is not running");
         return;
     }
     l = gtk_uri_launcher_new(colecosession_fujinet_webui_url(self->session));
@@ -562,7 +643,7 @@ static void action_fujinet_config(GSimpleAction *a, GVariant *p,
 static void restart_session(ColecoWindow *self)
 {
     if (power_cycle(self) == 0)
-        push_toast(self, "Machine options applied (session restarted)");
+        coleco_window_toast(self, "Machine options applied (session restarted)");
 }
 
 static void action_fujinet_log(GSimpleAction *a, GVariant *p,
@@ -572,7 +653,7 @@ static void action_fujinet_log(GSimpleAction *a, GVariant *p,
     (void)a;
     (void)p;
     if (colecosession_fujinet_external(self->session)) {
-        push_toast(self, "FujiNet is external: see its own console");
+        coleco_window_toast(self, "FujiNet is external: see its own console");
         return;
     }
     coleco_fujilog_show(GTK_WINDOW(self), self->session);
@@ -655,7 +736,7 @@ static const GActionEntry win_actions[] = {
     { "eject", action_eject, NULL, NULL, NULL, { 0 } },
     { "reset", action_reset, NULL, NULL, NULL, { 0 } },
     { "reset-config", action_reset_config, NULL, NULL, NULL, { 0 } },
-    { "keypad", action_keypad, NULL, NULL, NULL, { 0 } },
+    { "controllers", action_controllers, NULL, NULL, NULL, { 0 } },
     { "debugger", action_debugger, NULL, NULL, NULL, { 0 } },
     { "import-bios", action_import_bios, NULL, NULL, NULL, { 0 } },
     { "import-bios-folder", action_import_bios_folder, NULL, NULL, NULL, { 0 } },
@@ -685,7 +766,7 @@ static GMenu *build_menu(void)
     g_menu_append(machine, "Import BIOS from a _Folder\xe2\x80\xa6", "win.import-bios-folder");
     g_menu_append_section(menu, NULL, G_MENU_MODEL(machine));
 
-    g_menu_append(view, "_Controllers (F9)", "win.keypad");
+    g_menu_append(view, "_Controllers (F9)", "win.controllers");
     g_menu_append(view, "_Debugger (F12)", "win.debugger");
     g_menu_append(view, "_TV Aspect (4:3)", "win.tv-aspect");
     g_menu_append(view, "_Smooth Scaling", "win.smooth");
@@ -714,6 +795,10 @@ static void coleco_window_dispose(GObject *object)
         g_source_remove(self->status_id);
         self->status_id = 0;
     }
+    if (self->sysact_id) {
+        g_source_remove(self->sysact_id);
+        self->sysact_id = 0;
+    }
     G_OBJECT_CLASS(coleco_window_parent_class)->dispose(object);
 }
 
@@ -724,7 +809,7 @@ static void coleco_window_class_init(ColecoWindowClass *klass)
 
 static void coleco_window_init(ColecoWindow *self)
 {
-    coleco_input_reset(&self->input);
+    (void)self;
 }
 
 GtkWidget *coleco_window_new(AdwApplication *app, colecosession *session)
@@ -749,7 +834,7 @@ GtkWidget *coleco_window_new(AdwApplication *app, colecosession *session)
                                         G_N_ELEMENTS(app_actions), app);
     /* Ctrl+comma is the GNOME-wide Preferences accelerator. F9/F12 are
      * handled in on_key_pressed with the rest of the machine keys, because
-     * they must work while the keypad or debugger window has the focus. */
+     * they must work while the controllers or debugger window has the focus. */
     {
         static const char *const prefs_accels[] = { "<Control>comma", NULL };
         static const char *const help_accels[] = { "<Control><Shift>h", NULL };
@@ -810,16 +895,23 @@ GtkWidget *coleco_window_new(AdwApplication *app, colecosession *session)
     gtk_widget_add_controller(GTK_WIDGET(self), focus);
 
     self->status_id = g_timeout_add_seconds(1, update_status, self);
+    /* The current pad set is the baseline: no toast for pads that were
+     * already plugged in at launch. */
+    self->pad_generation = colecosession_gamepad_generation(session);
+    self->sysact_id = g_timeout_add(50, sysact_drain_tick, self);
     update_status(self);
 
-    /* COLECO_OPEN_KEYPAD=1 opens the controller panel at launch, following
-     * the family's <T>_OPEN_DEBUGGER convention. Worth having for the same
-     * reason: it is the way in when the app misbehaves before the menu is
-     * reachable, and the way a headless check can look at the panel. */
+    /* COLECO_OPEN_CONTROLLERS=1 (the older COLECO_OPEN_KEYPAD too) opens the
+     * Controllers window at launch, following the family's <T>_OPEN_DEBUGGER
+     * convention. Worth having for the same reason: it is the way in when the
+     * app misbehaves before the menu is reachable, and the way a headless
+     * check can look at the window. */
     {
-        const char *env = g_getenv("COLECO_OPEN_KEYPAD");
+        const char *env = g_getenv("COLECO_OPEN_CONTROLLERS");
+        if (!(env && *env && *env != '0'))
+            env = g_getenv("COLECO_OPEN_KEYPAD");
         if (env && *env && *env != '0')
-            coleco_keypad_window_toggle(GTK_WINDOW(self), session);
+            coleco_controllers_toggle(GTK_WINDOW(self), session);
         env = g_getenv("COLECO_OPEN_DEBUGGER");
         if (env && *env && *env != '0')
             coleco_debugger_show(GTK_WINDOW(self), session);
