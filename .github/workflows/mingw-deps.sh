@@ -33,8 +33,8 @@ set(CMAKE_FIND_ROOT_PATH_MODE_PROGRAM NEVER)
 set(CMAKE_FIND_ROOT_PATH_MODE_LIBRARY ONLY)
 set(CMAKE_FIND_ROOT_PATH_MODE_INCLUDE ONLY)
 # fujinet_pc.cmake overrides CMAKE_EXE_LINKER_FLAGS, so -static and the library path ride here
-set(CMAKE_C_STANDARD_LIBRARIES "-L$PREFIX/lib -static -lws2_32 -lcrypt32 -lbcrypt" CACHE STRING "")
-set(CMAKE_CXX_STANDARD_LIBRARIES "-L$PREFIX/lib -static -lws2_32 -lcrypt32 -lbcrypt" CACHE STRING "")
+set(CMAKE_C_STANDARD_LIBRARIES "-L$PREFIX/lib -static -lws2_32 -lcrypt32 -lbcrypt -luuid" CACHE STRING "")
+set(CMAKE_CXX_STANDARD_LIBRARIES "-L$PREFIX/lib -static -lws2_32 -lcrypt32 -lbcrypt -luuid" CACHE STRING "")
 EOF
 
 mkdir -p "$WORK"
@@ -93,5 +93,62 @@ cmake -S SDL3-3.4.12 -B sdl3-build "${CMAKE_DEP[@]}" -DSDL_SHARED=OFF -DSDL_STAT
     -DSDL_TEST_LIBRARY=OFF
 cmake --build sdl3-build -j"$JOBS"
 cmake --install sdl3-build
+
+# Ubuntu's MinGW (11.0) lacks mkdtemp(), which some of the repos' tests call (MSYS2's newer
+# mingw-w64 has it). A guarded shim, included into every C/C++ file through the toolchain
+# file; written last so the dependency builds above are unaffected.
+cat > "$PREFIX/mkdtemp-shim.h" <<'EOF'
+#ifndef FN_MKDTEMP_SHIM_H
+#define FN_MKDTEMP_SHIM_H
+#include <direct.h>
+#include <io.h>
+#include <string.h>
+#include <_mingw.h>
+#if defined(__MINGW64_VERSION_MAJOR) && __MINGW64_VERSION_MAJOR < 12
+static inline char *mkdtemp(char *tmpl)
+{
+    if (_mktemp_s(tmpl, strlen(tmpl) + 1) != 0 || _mkdir(tmpl) != 0)
+        return 0;
+    return tmpl;
+}
+#endif
+#if defined(__cplusplus) && defined(__MINGW64_VERSION_MAJOR) && __MINGW64_VERSION_MAJOR < 12
+/* The msvcrt headers also lack std::c16rtomb (Mesen's UTF8Util.cpp uses it): UTF-16 to UTF-8, with
+   a high surrogate held in the mbstate_t between calls. */
+#include <cstddef>
+#include <cwchar>
+namespace std {
+inline size_t c16rtomb(char *out, char16_t unit, mbstate_t *state)
+{
+    static mbstate_t own;
+    unsigned *high = reinterpret_cast<unsigned *>(state ? state : &own);
+    unsigned cp = unit;
+    if (*high) {
+        if (unit < 0xDC00 || unit > 0xDFFF) { *high = 0; return (size_t)-1; }
+        cp = 0x10000 + ((*high - 0xD800) << 10) + (unit - 0xDC00);
+        *high = 0;
+    } else if (unit >= 0xD800 && unit <= 0xDBFF) {
+        *high = unit;
+        return 0;
+    } else if (unit >= 0xDC00 && unit <= 0xDFFF) {
+        return (size_t)-1;
+    }
+    if (cp < 0x80) { out[0] = (char)cp; return 1; }
+    if (cp < 0x800) { out[0] = (char)(0xC0 | cp >> 6); out[1] = (char)(0x80 | (cp & 0x3F)); return 2; }
+    if (cp < 0x10000) {
+        out[0] = (char)(0xE0 | cp >> 12); out[1] = (char)(0x80 | ((cp >> 6) & 0x3F));
+        out[2] = (char)(0x80 | (cp & 0x3F)); return 3;
+    }
+    out[0] = (char)(0xF0 | cp >> 18); out[1] = (char)(0x80 | ((cp >> 12) & 0x3F));
+    out[2] = (char)(0x80 | ((cp >> 6) & 0x3F)); out[3] = (char)(0x80 | (cp & 0x3F)); return 4;
+}
+}
+#endif
+#endif
+EOF
+cat >> "$PREFIX/toolchain.cmake" <<EOF
+set(CMAKE_C_FLAGS_INIT "-include $PREFIX/mkdtemp-shim.h")
+set(CMAKE_CXX_FLAGS_INIT "-include $PREFIX/mkdtemp-shim.h")
+EOF
 
 echo "MinGW dependencies installed in $PREFIX"

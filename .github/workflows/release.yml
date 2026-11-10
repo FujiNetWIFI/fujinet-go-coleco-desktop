@@ -59,14 +59,23 @@ jobs:
       - name: The tag must match the version declared in the tree
         id: v
         run: |
-          tag="${GITHUB_REF#refs/tags/v}"
-          echo "tag version: $tag"
           cmake_version=$(sed -n 's/^project([^)]*VERSION \([0-9][0-9.]*\).*/\1/p' CMakeLists.txt)
           echo "CMakeLists.txt version: $cmake_version"
-          if [ "$tag" != "$cmake_version" ]; then
-            echo "::error::tag v$tag does not match CMakeLists.txt's project() VERSION $cmake_version"
-            exit 1
-          fi
+          case "$GITHUB_REF" in
+            refs/tags/v*)
+              tag="${GITHUB_REF#refs/tags/v}"
+              echo "tag version: $tag"
+              if [ "$tag" != "$cmake_version" ]; then
+                echo "::error::tag v$tag does not match CMakeLists.txt's project() VERSION $cmake_version"
+                exit 1
+              fi
+              ;;
+            *)
+              # a dispatched dry run: the tree's own version, no release at the end
+              echo "not a tag ($GITHUB_REF): dry run of $cmake_version"
+              tag="$cmake_version"
+              ;;
+          esac
           # Both metainfo files are TEMPLATES: their <release version="..."> is
           # @PROJECT_VERSION@, substituted at configure time. So they cannot
           # disagree with the tree's version the way a hardcoded one can -- the
@@ -202,7 +211,7 @@ jobs:
             && MIRROR=http://host.docker.internal:3142/mirrors.edge.kernel.org/ubuntu
           sed -i "s|http://[a-z.]*ubuntu.com/ubuntu|$MIRROR|" /etc/apt/sources.list.d/ubuntu.sources
           apt-get update
-          apt-get install -y --no-install-recommends git ca-certificates curl flatpak flatpak-builder elfutils
+          apt-get install -y --no-install-recommends git ca-certificates curl flatpak flatpak-builder elfutils unzip
           flatpak remote-add --if-not-exists --user flathub \
             https://dl.flathub.org/repo/flathub.flatpakrepo
 
