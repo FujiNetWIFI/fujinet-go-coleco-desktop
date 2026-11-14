@@ -287,7 +287,7 @@ static NSString *const kPageContexts[3] = { @"prefs/Machine", @"prefs/Input", @"
  * still down. */
 - (void)windowDidResignKey:(NSNotification *)note
 {
-    if (note.object == _window) colecosession_release_all(_session);
+    if (_session && note.object == _window) colecosession_release_all(_session);
 }
 
 - (BOOL)applicationShouldTerminateAfterLastWindowClosed:(NSApplication *)app
@@ -299,12 +299,18 @@ static NSString *const kPageContexts[3] = { @"prefs/Machine", @"prefs/Input", @"
 - (void)applicationWillTerminate:(NSNotification *)note
 {
     (void)note;
+    /* Close the windows while the session is alive: AppKit closes them after
+     * this returns, and their resign-key / will-close handlers use it. */
+    _window.delegate = nil;
+    for (NSWindow *w in [[NSApp windows] copy])
+        if (w != _window) [w close];
     [_statusTimer invalidate];
     [_sysactTimer invalidate];
     [_padTimer invalidate];
     [_display stop];
     colecosession_stop(_session);
     colecosession_free(_session);
+    _session = NULL;
 }
 
 /* ---- menu ---------------------------------------------------------------- */
