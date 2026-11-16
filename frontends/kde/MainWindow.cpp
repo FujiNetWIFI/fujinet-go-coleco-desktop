@@ -122,7 +122,7 @@ void MainWindow::buildMenus()
     view->addAction(QStringLiteral("&Controllers"), QKeySequence(Qt::Key_F9),
                     this, &MainWindow::toggleControllers);
     view->addAction(QStringLiteral("&Debugger"), QKeySequence(Qt::Key_F12),
-                    this, [this] { DebuggerWindow::showFor(this, m_session); });
+                    this, [this] { DebuggerWindow::toggleFor(this, m_session); });
     view->addSeparator();
     QAction *tv = view->addAction(QStringLiteral("&TV Aspect (4:3)"));
     tv->setCheckable(true);
@@ -401,7 +401,7 @@ void MainWindow::keyPressEvent(QKeyEvent *evt)
     if (evt->isAutoRepeat()) return;
     if (evt->key() == Qt::Key_F9) { toggleControllers(); return; }
     if (evt->key() == Qt::Key_F12) {
-        DebuggerWindow::showFor(this, m_session);
+        DebuggerWindow::toggleFor(this, m_session);
         return;
     }
 

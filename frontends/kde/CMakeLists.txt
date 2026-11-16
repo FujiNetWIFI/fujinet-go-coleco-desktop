@@ -36,8 +36,10 @@ add_executable(fujinet-go-coleco-kde
   FujiNetLogWindow.cpp
   help/HelpWindow.cpp
   debugger/DebuggerWindow.cpp
+  debugger/VideoTab.cpp
 )
 target_link_libraries(fujinet-go-coleco-kde PRIVATE coleco_session Qt6::Widgets Qt6::GuiPrivate)
+target_include_directories(fujinet-go-coleco-kde PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
 # The display's shaders, baked for every backend and embedded as resources.
 qt_add_shaders(fujinet-go-coleco-kde "display_shaders"
   PREFIX "/"
@@ -53,12 +55,35 @@ if(Qt6Test_FOUND)
     KeyForward.cpp
     help/HelpWindow.cpp
     debugger/DebuggerWindow.cpp
+    debugger/VideoTab.cpp
   )
   target_link_libraries(controllers_test_kde PRIVATE coleco_session Qt6::Widgets Qt6::Test Qt6::GuiPrivate)
   target_include_directories(controllers_test_kde PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
   add_test(NAME controllers_kde COMMAND controllers_test_kde)
   set_tests_properties(controllers_kde PROPERTIES
     SKIP_RETURN_CODE 77 TIMEOUT 60
+    ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+endif()
+
+# The Debugger window on the offscreen platform: the tabs and what needs no
+# machine always, and with a machine (and the ColecoVision BIOS, which is not
+# shippable: found through COLECO_BIOS_DIR or tools/roms) a NOP-padded program
+# stepped through the window. Skips (77) only where Qt has no offscreen platform.
+if(Qt6Test_FOUND)
+  add_executable(debugger_test_kde
+    debugger_test.cpp
+    debugger/DebuggerWindow.cpp
+    debugger/VideoTab.cpp
+    help/HelpWindow.cpp
+  )
+  target_link_libraries(debugger_test_kde PRIVATE coleco_session Qt6::Widgets Qt6::Test Qt6::GuiPrivate)
+  target_include_directories(debugger_test_kde PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+  target_compile_options(debugger_test_kde PRIVATE -Wall -Wextra)
+  target_compile_definitions(debugger_test_kde PRIVATE
+    COLECO_TEST_ROMS="${CMAKE_SOURCE_DIR}/tools/roms")
+  add_test(NAME debugger_kde COMMAND debugger_test_kde)
+  set_tests_properties(debugger_kde PROPERTIES
+    SKIP_RETURN_CODE 77 TIMEOUT 240
     ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 endif()
 
