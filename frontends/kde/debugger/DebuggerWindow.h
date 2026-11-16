@@ -4,8 +4,8 @@
  * (the MSX and INTV KDE debuggers): a QTabWidget under a toolbar, the
  * editable register strip under every tab.
  *
- * Showing the window stops the machine (as on every sibling) and hiding it
- * lets the machine run on. A breakpoint that fires while the window is hidden
+ * Showing the window leaves the machine running (as the GNOME and macOS ones
+ * do) and hiding it while it is stopped lets it run on. A breakpoint that fires while the window is hidden
  * shows it again. The window is never deleted by its close button: it is
  * hidden, and comes back as it was.
  *
@@ -40,7 +40,7 @@ class VideoTab;
 class DebuggerWindow : public QMainWindow {
     Q_OBJECT
 public:
-    /* Shows the window (which stops the machine). */
+    /* Shows the window. */
     static void showFor(QWidget *parent, colecosession *session);
     /* F12: shows it, or hides it (the machine runs on) when it is already up. */
     static void toggleFor(QWidget *parent, colecosession *session);
@@ -140,7 +140,6 @@ private:
     int m_runningTicks = 0;
     QTimer m_timer;
     uint64_t m_cartSerial = ~0ull;
-    bool m_openedPaused = false;        /* the window stopped the machine, and hiding it lets it run */
     QTabWidget *m_tabs = nullptr;
 
     QLabel *m_status = nullptr;

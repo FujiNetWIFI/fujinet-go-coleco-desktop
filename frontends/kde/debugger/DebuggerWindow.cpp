@@ -18,8 +18,9 @@
  * apply (F5 run/stop, F7 step, F8 step over, Shift+F8 step out, Shift+F7
  * frame, F9 breakpoint, F12 close).
  *
- * Showing the window stops the machine (as on every sibling); hiding it lets
- * the machine run on. A breakpoint that fires while it is hidden shows it.
+ * Showing the window leaves the machine running (as the GNOME and macOS ones
+ * do); hiding it while the machine is stopped lets it run on. A breakpoint
+ * that fires while the window is hidden shows it.
  *
  * A short timer polls the engine's stop snapshot (the engine's stop callback
  * fires on the emulator thread, so it only brings a hidden window back) and
@@ -57,6 +58,7 @@
 #include <QShowEvent>
 #include <QSplitter>
 #include <QStatusBar>
+#include <QToolBar>
 #include <QStyle>
 #include <QTextBlock>
 #include <QTextCursor>
@@ -335,7 +337,7 @@ void stopTrampoline(void *user, colecodebug_stop_reason reason, uint16_t)
 void DebuggerWindow::showFor(QWidget *parent, colecosession *session)
 {
     if (!s_win) s_win = new DebuggerWindow(session, parent);
-    /* showEvent stops the machine */
+    /* the machine keeps running */
     s_win->show();
     s_win->raise();
     s_win->activateWindow();
@@ -425,15 +427,15 @@ DebuggerWindow::~DebuggerWindow()
 
 QWidget *DebuggerWindow::buildToolbar()
 {
-    auto *bar = new QWidget;
-    auto *row = new QHBoxLayout(bar);
-    row->setContentsMargins(0, 0, 0, 0);
+    /* a tool bar, so a narrow window folds the buttons that do not fit into its extension menu */
+    auto *bar = new QToolBar;
+    bar->setMovable(false);
     auto add = [&](const QString &label, const QString &tip, std::function<void()> action) {
         auto *button = new QPushButton(label);
         button->setFocusPolicy(Qt::NoFocus);
         button->setToolTip(tip);
         connect(button, &QPushButton::clicked, this, action);
-        row->addWidget(button);
+        bar->addWidget(button);
         return button;
     };
     m_runBtn = add(QStringLiteral("Stop (F5)"), QStringLiteral("Run, or stop before the next instruction"),
@@ -447,7 +449,9 @@ QWidget *DebuggerWindow::buildToolbar()
         [this] { runToCursor(); });
     add(QStringLiteral("Frame (Shift+F7)"), QStringLiteral("On to the end of the frame"),
         [this] { stepAnd(colecodebug_frame); });
-    row->addStretch(1);
+    auto *spacer = new QWidget;
+    spacer->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
+    bar->addWidget(spacer);
 
     auto *sym = new QPushButton(QStringLiteral("Symbols"));
     sym->setFocusPolicy(Qt::NoFocus);
@@ -460,7 +464,7 @@ QWidget *DebuggerWindow::buildToolbar()
         resync();
     });
     sym->setMenu(symMenu);
-    row->addWidget(sym);
+    bar->addWidget(sym);
 
     auto *saveBtn = new QPushButton(QStringLiteral("Save"));
     saveBtn->setFocusPolicy(Qt::NoFocus);
@@ -474,10 +478,10 @@ QWidget *DebuggerWindow::buildToolbar()
     menu->addAction(QStringLiteral("CPU registers"), this,
                     [this] { save("regs", QStringLiteral("CPU registers"), QStringLiteral("registers.txt")); });
     saveBtn->setMenu(menu);
-    row->addWidget(saveBtn);
+    bar->addWidget(saveBtn);
     add(QStringLiteral("Pop Out"), QStringLiteral("Move the tab that shows into a window of its own; Dock puts it back"),
         [this] { popOut(currentTab()); });
-    row->addWidget(colecoHelpButton(QString()));
+    bar->addWidget(colecoHelpButton(QString()));
 
     /* the status line sits in the status bar: the toolbar has no room for it */
     m_status = new StatusLabel;
@@ -925,14 +929,14 @@ QWidget *DebuggerWindow::buildFujinet()
     leftLayout->addLayout(row);
     m_fujiText = monoView();
     leftLayout->addWidget(m_fujiText, 1);
-    left->setMinimumWidth(560);
+    left->setMinimumWidth(300);
 
     auto *right = new QWidget;
     auto *rightLayout = new QVBoxLayout(right);
     rightLayout->addWidget(titleLabel(QStringLiteral("FujiNet cartridge")));
     m_fujiState = monoView();
     rightLayout->addWidget(m_fujiState, 1);
-    right->setMinimumWidth(320);
+    right->setMinimumWidth(200);
     split->addWidget(left);
     split->addWidget(right);
     split->setStretchFactor(0, 3);
@@ -2035,14 +2039,13 @@ void DebuggerWindow::keyPressEvent(QKeyEvent *evt)
     if (!handleKey(evt)) QMainWindow::keyPressEvent(evt);
 }
 
-/* Shown: the engine attaches, which stops the machine, as on every sibling.
+/* Shown: the machine keeps running until it is stopped here.
  * The tabs have no size until the window is up, so the first refresh waits
  * for the event loop. A restore from the taskbar is not a show. */
 void DebuggerWindow::showEvent(QShowEvent *evt)
 {
     QMainWindow::showEvent(evt);
     if (evt->spontaneous()) return;
-    colecodebug_pause(m_dbg);      /* opening a debugger stops the machine, as on every sibling */
     m_wasStopped = false;
     m_seenSerial = ~0ull;
     for (QWidget *win : m_popped)

@@ -279,6 +279,8 @@ private slots:
     {
         QVERIFY2(m_win->minimumSizeHint().height() <= 800,
                  qPrintable(QStringLiteral("minimum height %1").arg(m_win->minimumSizeHint().height())));
+        QVERIFY2(m_win->minimumSizeHint().width() <= 950,
+                 qPrintable(QStringLiteral("minimum width %1").arg(m_win->minimumSizeHint().width())));
     }
 
     /* the built-in BIOS names fill the list the first time the tab opens */
