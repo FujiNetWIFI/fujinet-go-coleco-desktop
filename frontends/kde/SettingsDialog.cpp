@@ -270,32 +270,44 @@ bool SettingsDialog::run(QWidget *parent, colecosession *session, bool *openCont
     bool imported = false;
     auto *romsPage = new QWidget;
     auto *rv = new QVBoxLayout(romsPage);
+    auto *romBox = new QGroupBox(QStringLiteral("Console"));
+    auto *romForm = new QFormLayout(romBox);
+    auto *romIntro = new QLabel(QStringLiteral(
+        "The ColecoVision BIOS is copyrighted, so none comes with the app. "
+        "Nothing runs without it."));
+    romIntro->setWordWrap(true);
+    rv->addWidget(romIntro);
+    QLabel *romState = nullptr;
+    for (int i = 0; i < colecosession_rom_item_count(); i++) {
+        const coleco_rom_item *it = colecosession_rom_item(i);
+        auto *romName = new QLabel(QString::fromUtf8(it->name));
+        romName->setToolTip(QStringLiteral("%1 \u00b7 %2 bytes \u00b7 CRC-32 %3")
+            .arg(QString::fromUtf8(it->file)).arg(it->size)
+            .arg(it->crc, 8, 16, QLatin1Char('0')).toUpper());
+        romState = new QLabel;
+        romForm->addRow(romName, romState);
+    }
+    rv->addWidget(romBox);
+    auto *impBox = new QGroupBox(QStringLiteral("Import"));
+    auto *impLay = new QVBoxLayout(impBox);
     auto *intro = new QLabel(QStringLiteral(
-        "The ColecoVision BIOS is not part of the app. Import your own dump "
-        "from a file, a zip (MAME's coleco.zip works) or a folder; it is "
-        "recognised by its size and checksum, whatever it is called. Kept in:"));
+        "A file, a zip (MAME's coleco.zip works) or a folder, recognised by "
+        "size and checksum. Takes effect at the next power cycle."));
     intro->setWordWrap(true);
-    rv->addWidget(intro);
-    auto *romPath = new QLabel(QString::fromLocal8Bit(
-        colecosession_roms_path(session)));
-    romPath->setTextInteractionFlags(Qt::TextSelectableByMouse);
-    romPath->setWordWrap(true);
-    rv->addWidget(romPath);
+    impLay->addWidget(intro);
     auto *romRow = new QHBoxLayout;
-    auto *importFiles = new QPushButton(QStringLiteral("Import BIOS..."));
-    auto *importFolder =
-        new QPushButton(QStringLiteral("Import from a Folder..."));
+    auto *importFiles = new QPushButton(QStringLiteral("Import\u2026"));
+    auto *importFolder = new QPushButton(QStringLiteral("Import a Folder\u2026"));
     romRow->addWidget(importFiles);
     romRow->addWidget(importFolder);
     romRow->addStretch(1);
-    rv->addLayout(romRow);
-    auto *romBox = new QGroupBox(QStringLiteral("Console"));
-    auto *romForm = new QFormLayout(romBox);
-    auto *romName = new QLabel(QStringLiteral("ColecoVision BIOS (OS7.rom)"));
-    romName->setToolTip(QStringLiteral("OS7.rom, 8192 bytes"));
-    auto *romState = new QLabel;
-    romForm->addRow(romName, romState);
-    rv->addWidget(romBox);
+    impLay->addLayout(romRow);
+    auto *kept = new QLabel(QStringLiteral("Kept in: %1").arg(
+        QString::fromLocal8Bit(colecosession_roms_path(session))));
+    kept->setTextInteractionFlags(Qt::TextSelectableByMouse);
+    kept->setWordWrap(true);
+    impLay->addWidget(kept);
+    rv->addWidget(impBox);
     rv->addStretch(1);
     auto refreshRoms = [&] {
         const bool have = colecosession_bios_available(session) != 0;

@@ -40,7 +40,7 @@ static const struct {
                        "Enable FujiNet", "Use external FujiNet", "Address:port", "Audio", NULL } },
     { "prefs/Input", { "Enable gamepads", "Swap controller buttons", "Gamepads", "Automatic", "Controller 1",
                        "Controller 2", "Reset Controls", "Open Controllers", "remembered between runs", NULL } },
-    { "preferences", { "Import BIOS", "Import from a Folder", "ROM folder", "ColecoVision BIOS (OS7.rom)", NULL } },
+    { "preferences", { "Import a BIOS", "Import a Folder", "Kept in", "ColecoVision BIOS (OS7.rom)", NULL } },
 };
 
 /* The settings keys the pages write. */

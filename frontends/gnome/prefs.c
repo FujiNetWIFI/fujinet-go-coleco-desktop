@@ -32,7 +32,7 @@ typedef struct {
     void (*restart)(ColecoWindow *window);
     gboolean dirty;
     AdwDialog *dialog;
-    GtkWidget *rom_row, *rom_mark;      /* the OS7.rom row */
+    GtkWidget *rom_status[4];           /* one pill per ROM item */
     GtkWidget *pad_group;               /* the Input page's gamepad rows */
     GtkWidget *pad_rows[MAX_PAD_ROWS + 1];
     int pad_row_count;
@@ -313,14 +313,14 @@ static AdwPreferencesPage *build_input_page(PrefsState *state)
 
 static void refresh_roms(PrefsState *state)
 {
-    gboolean have = colecosession_bios_available(state->session) != 0;
-
-    adw_action_row_set_subtitle(ADW_ACTION_ROW(state->rom_row),
-                                have ? "Imported" : "Not imported");
-    gtk_widget_remove_css_class(state->rom_mark, have ? "dim-label" : "success");
-    gtk_widget_add_css_class(state->rom_mark, have ? "success" : "dim-label");
-    gtk_image_set_from_icon_name(GTK_IMAGE(state->rom_mark),
-                                 have ? "emblem-ok-symbolic" : "action-unavailable-symbolic");
+    int i;
+    for (i = 0; i < colecosession_rom_item_count() && i < 4; i++) {
+        const gboolean have = colecosession_rom_item_available(state->session, i) != 0;
+        GtkWidget *l = state->rom_status[i];
+        gtk_label_set_text(GTK_LABEL(l), have ? "Imported" : "Not imported");
+        gtk_widget_remove_css_class(l, have ? "dim-label" : "success");
+        gtk_widget_add_css_class(l, have ? "success" : "dim-label");
+    }
 }
 
 /* An import from Preferences does not power-cycle at once: closing the dialog
@@ -346,16 +346,6 @@ static void on_import_clicked(GtkButton *b, gpointer user_data)
                               on_import_done, g_object_ref(state->dialog));
 }
 
-static void on_open_roms(GtkButton *b, gpointer user_data)
-{
-    PrefsState *state = user_data;
-    g_autoptr(GFile) dir = g_file_new_for_path(colecosession_roms_path(state->session));
-    GtkFileLauncher *l = gtk_file_launcher_new(dir);
-    (void)b;
-    gtk_file_launcher_launch(l, GTK_WINDOW(state->window), NULL, NULL, NULL);
-    g_object_unref(l);
-}
-
 static GtkWidget *info_row(const char *title, const char *subtitle)
 {
     GtkWidget *row = adw_action_row_new();
@@ -368,55 +358,62 @@ static AdwPreferencesPage *build_roms_page(PrefsState *state)
 {
     AdwPreferencesPage *page = ADW_PREFERENCES_PAGE(adw_preferences_page_new());
     AdwPreferencesGroup *group = ADW_PREFERENCES_GROUP(adw_preferences_group_new());
-    GtkWidget *box, *files, *folder, *row, *open, *detail;
+    AdwPreferencesGroup *imp = ADW_PREFERENCES_GROUP(adw_preferences_group_new());
+    GtkWidget *row = adw_action_row_new();
+    GtkWidget *where = adw_action_row_new();
+    GtkWidget *files = gtk_button_new_with_label("Import\xe2\x80\xa6");
+    GtkWidget *dir = gtk_button_new_with_label("Import a Folder\xe2\x80\xa6");
+    int i;
 
     adw_preferences_page_set_title(page, "ROMs");
     adw_preferences_page_set_name(page, "ROMs");
     adw_preferences_page_set_icon_name(page, "media-flash-symbolic");
 
-    adw_preferences_group_set_title(group, "Import");
-    adw_preferences_group_set_header_suffix(group, coleco_help_button("prefs/ROMs"));
-    row = info_row("Import BIOS",
-        "Your own copy: a single file, a zip (MAME's coleco.zip works) or a "
-        "folder. The BIOS is recognised by its size and checksum, whatever it "
-        "is called.");
-    box = gtk_box_new(GTK_ORIENTATION_VERTICAL, 6);
-    files = gtk_button_new_with_label("Import BIOS\xe2\x80\xa6");
-    folder = gtk_button_new_with_label("Import from a Folder\xe2\x80\xa6");
-    gtk_widget_add_css_class(files, "coleco-accent");
-    g_object_set_data(G_OBJECT(folder), "coleco-folder", GINT_TO_POINTER(1));
-    g_signal_connect(files, "clicked", G_CALLBACK(on_import_clicked), state);
-    g_signal_connect(folder, "clicked", G_CALLBACK(on_import_clicked), state);
-    gtk_widget_set_valign(box, GTK_ALIGN_CENTER);
-    gtk_box_append(GTK_BOX(box), files);
-    gtk_box_append(GTK_BOX(box), folder);
-    adw_action_row_add_suffix(ADW_ACTION_ROW(row), box);
-    adw_preferences_group_add(group, row);
-
-    row = info_row("ROM folder", colecosession_roms_path(state->session));
-    adw_action_row_set_subtitle_selectable(ADW_ACTION_ROW(row), TRUE);
-    open = gtk_button_new_with_label("Open");
-    gtk_widget_set_valign(open, GTK_ALIGN_CENTER);
-    g_signal_connect(open, "clicked", G_CALLBACK(on_open_roms), state);
-    adw_action_row_add_suffix(ADW_ACTION_ROW(row), open);
-    adw_preferences_group_add(group, row);
-    adw_preferences_page_add(page, group);
-
-    group = ADW_PREFERENCES_GROUP(adw_preferences_group_new());
     adw_preferences_group_set_title(group, "Console");
-    row = adw_action_row_new();
-    adw_preferences_row_set_title(ADW_PREFERENCES_ROW(row),
-                                  "ColecoVision BIOS (OS7.rom)");
-    detail = gtk_label_new("8192 bytes   CRC-32 3AA93EF3");
-    gtk_widget_add_css_class(detail, "dim-label");
-    gtk_widget_add_css_class(detail, "caption");
-    gtk_widget_set_valign(detail, GTK_ALIGN_CENTER);
-    state->rom_mark = gtk_image_new();
-    adw_action_row_add_prefix(ADW_ACTION_ROW(row), state->rom_mark);
-    adw_action_row_add_suffix(ADW_ACTION_ROW(row), detail);
-    adw_preferences_group_add(group, row);
+    adw_preferences_group_set_description(group,
+        "The ColecoVision BIOS is copyrighted, so none comes with the app. "
+        "Nothing runs without it.");
+    adw_preferences_group_set_header_suffix(group, coleco_help_button("prefs/ROMs"));
+    for (i = 0; i < colecosession_rom_item_count() && i < 4; i++) {
+        const coleco_rom_item *it = colecosession_rom_item(i);
+        GtkWidget *r = adw_action_row_new();
+        GtkWidget *st = gtk_label_new("");
+        char sub[200];
+
+        g_snprintf(sub, sizeof sub, "%s \xc2\xb7 %u bytes \xc2\xb7 CRC-32 %08X", it->file,
+                   it->size, it->crc);
+        adw_preferences_row_set_title(ADW_PREFERENCES_ROW(r), it->name);
+        adw_action_row_set_subtitle(ADW_ACTION_ROW(r), sub);
+        adw_preferences_row_set_use_markup(ADW_PREFERENCES_ROW(r), FALSE);
+        gtk_widget_add_css_class(st, "coleco-pill");
+        gtk_widget_set_valign(st, GTK_ALIGN_CENTER);
+        gtk_widget_set_size_request(st, 104, -1);
+        gtk_label_set_xalign(GTK_LABEL(st), 0.5f);
+        adw_action_row_add_suffix(ADW_ACTION_ROW(r), st);
+        adw_preferences_group_add(group, r);
+        state->rom_status[i] = st;
+    }
     adw_preferences_page_add(page, group);
-    state->rom_row = row;
+
+    adw_preferences_group_set_title(imp, "Import");
+    adw_preferences_row_set_title(ADW_PREFERENCES_ROW(row), "Import a BIOS");
+    adw_action_row_set_subtitle(ADW_ACTION_ROW(row),
+        "A file, a zip (MAME's coleco.zip works) or a folder, recognised by "
+        "size and checksum. Takes effect at the next power cycle.");
+    g_object_set_data(G_OBJECT(dir), "coleco-folder", GINT_TO_POINTER(1));
+    g_signal_connect(files, "clicked", G_CALLBACK(on_import_clicked), state);
+    g_signal_connect(dir, "clicked", G_CALLBACK(on_import_clicked), state);
+    gtk_widget_set_valign(files, GTK_ALIGN_CENTER);
+    gtk_widget_set_valign(dir, GTK_ALIGN_CENTER);
+    adw_action_row_add_suffix(ADW_ACTION_ROW(row), files);
+    adw_action_row_add_suffix(ADW_ACTION_ROW(row), dir);
+    adw_preferences_group_add(imp, row);
+    adw_preferences_row_set_title(ADW_PREFERENCES_ROW(where), "Kept in");
+    adw_preferences_row_set_use_markup(ADW_PREFERENCES_ROW(where), FALSE);
+    adw_action_row_set_subtitle(ADW_ACTION_ROW(where), colecosession_roms_path(state->session));
+    adw_action_row_set_subtitle_selectable(ADW_ACTION_ROW(where), TRUE);
+    adw_preferences_group_add(imp, where);
+    adw_preferences_page_add(page, imp);
     refresh_roms(state);
     return page;
 }

@@ -15,6 +15,10 @@
 #include <time.h>
 
 #include "adamcore_debug.h"
+#include "audioring.h"
+#ifdef __APPLE__
+#include <pthread/qos.h>
+#endif
 #include "colecovidcap.h"
 #include "fujinet_cart.h"
 
@@ -28,6 +32,8 @@ static atomic_bool s_stop_req;
 static atomic_int s_reset_req = -1;
 static atomic_bool s_dbg_engaged;
 static atomic_bool s_audio_mute;
+static audioring s_ring;       /* machine thread -> audio callback */
+static double s_pcm_acc;       /* fractional samples per frame */
 static int (*s_frame_fn)(void);
 static coleco_host_core_hooks s_core_hooks;
 static char s_error[256];
@@ -402,6 +408,25 @@ static int wait_vsync(uint64_t *seen, long timeout_ns)
     return got;
 }
 
+/* One frame of sound, made here on the machine thread so the PSG write queue
+ * has a single thread on both ends, and handed to the device through the
+ * rate-controlled ring. */
+static void render_frame_audio(void)
+{
+    int16_t pcm[1024];
+    int n;
+
+    s_pcm_acc += 44100.0 *  COLECO_CYCLES_PER_FRAME /
+                 COLECO_CPU_HZ;
+    n = (int)s_pcm_acc;
+    s_pcm_acc -= n;
+    if (n > (int)(sizeof pcm / sizeof pcm[0]))
+        n = (int)(sizeof pcm / sizeof pcm[0]);
+    n = adamcore_render_audio(s_core, pcm, n);
+    if (n > 0)
+        audioring_push(&s_ring, pcm, n);
+}
+
 /* ---- the thread ----------------------------------------------------------- */
 
 static void *machine_thread(void *arg)
@@ -417,6 +442,11 @@ static void *machine_thread(void *arg)
     int locked = 0;
 
     (void)arg;
+#ifdef __APPLE__
+    /* Pacing jitter on this thread is audible as uneven tempo: ask for the
+     * top interactive class so the scheduler does not coalesce its timers. */
+    pthread_set_qos_class_self_np(QOS_CLASS_USER_INTERACTIVE, 0);
+#endif
 
     /* Bring the cartridge up here rather than on the caller's thread: the TCP
      * connect to the BoIP listener is quick but not free, and a failed link
@@ -434,8 +464,10 @@ static void *machine_thread(void *arg)
     while (!atomic_load(&s_stop_req)) {
         int mode = atomic_exchange(&s_reset_req, -1);
         clock_gettime(CLOCK_MONOTONIC, &frame_start);
-        if (mode >= 0)
+        if (mode >= 0) {
             adamcore_request_reset(s_core, mode);
+            audioring_flush(&s_ring);
+        }
         capture_sync();
 
         /* The stepped path only when the debugger is actually engaged:
@@ -447,6 +479,7 @@ static void *machine_thread(void *arg)
         else
             adamcore_run_frame(s_core);
         frame_publish(adamcore_framebuffer(s_core, NULL, NULL));
+        render_frame_audio();
         if (atomic_load(&s_cap_want) > 0)
             capture_frame();
 
@@ -564,6 +597,8 @@ int coleco_host_start(const coleco_host_opts *opts)
 
     atomic_store(&s_stop_req, false);
     atomic_store(&s_reset_req, -1);
+    audioring_reset(&s_ring);
+    s_pcm_acc = 0.0;
     if (s_core_hooks.created)
         s_core_hooks.created(s_core);
     if (pthread_create(&s_thread, NULL, machine_thread, NULL) != 0) {
@@ -610,18 +645,17 @@ void coleco_host_stop(void)
 
 int coleco_host_render_audio(int16_t *out, int nsamples)
 {
-    /* adamcore synthesizes on the caller's thread from a timestamped queue
-     * and is explicitly audio-thread safe, so there is no ring of our own to
-     * go through. When the machine is stopped, hand back silence rather than
-     * leaving the device's buffer undefined. */
-    /* Muted while the debugger holds the machine: without this the last few
-     * milliseconds before the break repeat forever, which is both maddening
-     * and a good way to mistake a paused emulator for a hung one. */
+    /* The device drains the ring the machine thread fills. Silence when the
+     * machine is stopped, and while the debugger holds it: otherwise the last
+     * few milliseconds before the break repeat forever, which is both
+     * maddening and a good way to mistake a paused emulator for a hung one. */
     if (!s_core || atomic_load(&s_audio_mute)) {
         memset(out, 0, (size_t)nsamples * sizeof *out);
+        audioring_flush(&s_ring);
         return nsamples;
     }
-    return adamcore_render_audio(s_core, out, nsamples);
+    audioring_pull(&s_ring, out, nsamples);
+    return nsamples;
 }
 
 void coleco_host_joystick(int port, uint16_t state)

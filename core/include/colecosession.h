@@ -447,6 +447,22 @@ int         colecosession_cart_mailbox_live(const colecosession *s);
  * The BIOS is not redistributed, so a fresh install has none and the app has
  * to say so rather than showing a black screen. */
 int  colecosession_bios_available(const colecosession *s);
+
+/* The ROM files this app takes, for the Preferences ROMs page: the same shape
+ * as the Channel F desktop's table so the frontends read alike. One item (the
+ * BIOS); `crc` is the common revision's, the Dina / Telegames variant is also
+ * accepted. */
+typedef struct {
+    const char *name;         /* "ColecoVision BIOS (OS7.rom)" */
+    const char *group;        /* "Console" */
+    const char *file;         /* stored as */
+    uint32_t size, crc;
+} coleco_rom_item;
+
+int  colecosession_rom_item_count(void);
+const coleco_rom_item *colecosession_rom_item(int i);
+/* 1 if item i is in the ROM directory. */
+int  colecosession_rom_item_available(const colecosession *s, int i);
 /* Import BIOS, the way the Odyssey 2 / MS-DOS desktops do it: `path` is a
  * file, a zip (MAME's coleco.zip works) or a folder (searched 8 levels deep,
  * zips inside it too). The image is recognised by size and CRC-32 whatever it

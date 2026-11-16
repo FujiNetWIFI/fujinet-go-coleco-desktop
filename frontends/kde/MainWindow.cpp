@@ -103,9 +103,9 @@ void MainWindow::buildMenus()
     machine->addAction(QStringLiteral("Reset to &CONFIG"), this,
                        [this] { runSysaction(COLECO_SYSACT_RESET_CONFIG); });
     machine->addSeparator();
-    machine->addAction(QStringLiteral("Import &BIOS..."), this,
+    machine->addAction(QStringLiteral("Import &BIOS\u2026"), this,
                        [this] { importRoms(false); });
-    machine->addAction(QStringLiteral("Import BIOS from a &Folder..."), this,
+    machine->addAction(QStringLiteral("Import BIOS from a &Folder\u2026"), this,
                        [this] { importRoms(true); });
     machine->addSeparator();
     /* Ctrl+comma spelled out rather than QKeySequence::Preferences: that
@@ -215,23 +215,24 @@ void MainWindow::explainRefusal(const QString &title, const QString &why,
     /* not exec(): a nested event loop could be re-entered from a timer */
     auto *box = new QMessageBox(
         QMessageBox::Information, title,
-        QStringLiteral("The ColecoVision BIOS is needed"),
+        QStringLiteral("This needs the ColecoVision BIOS"),
         QMessageBox::NoButton, this);
     box->setAttribute(Qt::WA_DeleteOnClose);
     box->setInformativeText(QStringLiteral(
         "The console runs on its OS-7 BIOS, which is not part of this app. "
         "Import your own copy (a file, a zip such as MAME's coleco.zip, or a "
         "folder) and the console starts."));
-    QPushButton *import = box->addButton(QStringLiteral("Import BIOS..."),
+    QPushButton *import = box->addButton(QStringLiteral("Import BIOS\u2026"),
                                          QMessageBox::AcceptRole);
-    box->addButton(QStringLiteral("Not Now"), QMessageBox::RejectRole);
     QPushButton *helpBtn = box->addButton(QStringLiteral("Help"), QMessageBox::HelpRole);
+    box->addButton(QStringLiteral("Not Now"), QMessageBox::RejectRole);
     box->setDefaultButton(import);
-    /* Help keeps the box up: a HelpRole button does not close it */
-    helpBtn->disconnect();
-    connect(helpBtn, &QPushButton::clicked, this, [this] { colecoHelpShow(this, QStringLiteral("nobios")); });
     connect(box, &QMessageBox::buttonClicked, this,
-            [this, import, retry](QAbstractButton *b) {
+            [this, import, helpBtn, retry](QAbstractButton *b) {
+        if (b == helpBtn) {
+            colecoHelpShow(this, QStringLiteral("nobios"));
+            return;
+        }
         if (b != import) return;
         if (SettingsDialog::importRoms(this, m_session, false) <= 0) return;
         if (retry) retry();
@@ -278,7 +279,7 @@ void MainWindow::afterImport(bool wasMissing)
     colecosession_stop(m_session);
     if (start())
         statusBar()->showMessage(
-            QStringLiteral("ROMs imported: the console was power-cycled to use them"), 6000);
+            QStringLiteral("BIOS imported: the console was power-cycled to use it"), 6000);
 }
 
 /* Stop, re-read the settings store, start. Every option the Preferences

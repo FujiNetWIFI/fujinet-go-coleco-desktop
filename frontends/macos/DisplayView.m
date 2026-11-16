@@ -23,6 +23,7 @@
  * the ratio is what this converts by. */
 #include <mach/mach_time.h>
 
+#include <os/lock.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -36,6 +37,7 @@
     CGColorSpaceRef _cs;
     BOOL _tv;
     BOOL _smooth;
+    os_unfair_lock _rgbLock;   /* tick() writes _rgb, drawRect: snapshots it */
 }
 
 static CVReturn displayCallback(CVDisplayLinkRef link,
@@ -57,6 +59,7 @@ static CVReturn displayCallback(CVDisplayLinkRef link,
     _session = session;
     _tv = YES;
     _smooth = NO;
+    _rgbLock = OS_UNFAIR_LOCK_INIT;
 
     const size_t n = COLECOSESSION_FB_WIDTH * COLECOSESSION_FB_HEIGHT;
     _fb = calloc(n, sizeof *_fb);
@@ -108,6 +111,7 @@ static CVReturn displayCallback(CVDisplayLinkRef link,
         return;
 
     const int n = COLECOSESSION_FB_WIDTH * COLECOSESSION_FB_HEIGHT;
+    os_unfair_lock_lock(&_rgbLock);
     for (int i = 0; i < n; i++) {
         const uint16_t p = _fb[i];
         unsigned r = (p >> 11) & 0x1F, g = (p >> 5) & 0x3F, b = p & 0x1F;
@@ -118,6 +122,7 @@ static CVReturn displayCallback(CVDisplayLinkRef link,
         b = (b << 3) | (b >> 2);
         _rgb[i] = (r << 16) | (g << 8) | b;
     }
+    os_unfair_lock_unlock(&_rgbLock);
     /* AppKit is main-thread only; the display link's callback is not. */
     dispatch_async(dispatch_get_main_queue(), ^{
         [self setNeedsDisplay:YES];
@@ -139,7 +144,11 @@ static CVReturn displayCallback(CVDisplayLinkRef link,
     CGContextSetRGBFillColor(dc, 0, 0, 0, 1);
     CGContextFillRect(dc, b);
 
+    /* The image is a snapshot taken under the lock: the display-link thread
+     * rewrites _rgb every refresh, and an unlocked read tears the frame. */
+    os_unfair_lock_lock(&_rgbLock);
     CGImageRef img = CGBitmapContextCreateImage(_ctx);
+    os_unfair_lock_unlock(&_rgbLock);
     if (!img) return;
 
     /* 256x212 is not 4:3: the 192 active lines are, and the borders are part

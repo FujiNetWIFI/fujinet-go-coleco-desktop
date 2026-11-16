@@ -19,11 +19,10 @@ typedef struct {
     SDL_AudioStream *stream;
 } audio_state;
 
-/* Pull model: the device asks for more and we hand back exactly that much.
- * There is no ring between here and the emulator -- adamcore synthesizes on
- * the caller's thread from its own timestamped PSG write queue and is
- * explicitly audio-thread safe, so this pulls straight through. That is why
- * the sibling ports' ring-trimming logic has no counterpart here. */
+/* Pull model: the device asks for more and we hand back exactly that much,
+ * from the rate-controlled ring the machine thread fills (core/coleco/
+ * audioring.h). The ring's resampler absorbs the drift between the frame
+ * clock and the device clock; nothing here trims or skips. */
 static void audio_cb(void *ud, SDL_AudioStream *stream, int additional_amount,
                      int total_amount)
 {
@@ -55,6 +54,8 @@ int audio_start(struct colecosession *s)
         return 0;
     /* The app owns its signals; SDL must not intercept SIGINT/SIGTERM. */
     SDL_SetHint(SDL_HINT_NO_SIGNAL_HANDLERS, "1");
+    /* A small device buffer: latency is the ring's 50 ms, not SDL's. */
+    SDL_SetHint(SDL_HINT_AUDIO_DEVICE_SAMPLE_FRAMES, "512");
     if (!SDL_InitSubSystem(SDL_INIT_AUDIO)) {
         session_set_error(s, "SDL audio init failed: %s", SDL_GetError());
         return -1;

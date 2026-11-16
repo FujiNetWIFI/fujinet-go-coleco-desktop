@@ -142,6 +142,26 @@ int colecosession_bios_available(const colecosession *s)
     return roms_any_available(s);
 }
 
+static const coleco_rom_item s_items[] = {
+    { "ColecoVision BIOS (OS7.rom)", "Console", BIOS_NAME,
+      8192, 0x3AA93EF3u },
+};
+
+int colecosession_rom_item_count(void)
+{
+    return (int)(sizeof s_items / sizeof *s_items);
+}
+
+const coleco_rom_item *colecosession_rom_item(int i)
+{
+    return i >= 0 && i < colecosession_rom_item_count() ? &s_items[i] : NULL;
+}
+
+int colecosession_rom_item_available(const colecosession *s, int i)
+{
+    return s && i == 0 && roms_any_available(s);
+}
+
 /* ---- the import ------------------------------------------------------------ */
 
 static int is_known_crc(uint32_t crc)

@@ -221,3 +221,9 @@ if(WIN32)
   endforeach()
 endif()
 # ---- end ENGINE agent --------------------------------------------------------
+
+# The rate-controlled audio ring (core/coleco/audioring.h), header-only: ten
+# simulated minutes at +-0.13% clock error. No machine, no SDL.
+add_executable(audioring_test audioring_test.c)
+target_include_directories(audioring_test PRIVATE "${CMAKE_SOURCE_DIR}/core/coleco")
+add_test(NAME audioring COMMAND audioring_test)

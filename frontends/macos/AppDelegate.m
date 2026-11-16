@@ -124,6 +124,14 @@ static NSString *const kPageContexts[3] = { @"prefs/Machine", @"prefs/Input", @"
 {
     (void)note;
 
+    /* The machine thread's pacing is the music's tempo: opt out of App Nap and
+     * timer coalescing for as long as the app runs. */
+    static id s_activity;
+    s_activity = [[NSProcessInfo processInfo]
+        beginActivityWithOptions:(NSActivityUserInitiated |
+                                  NSActivityLatencyCritical)
+                          reason:@"Emulation and audio pacing"];
+
     _window = [[NSWindow alloc]
         initWithContentRect:NSMakeRect(0, 0, 848, 636)
                   styleMask:(NSWindowStyleMaskTitled | NSWindowStyleMaskClosable |
@@ -690,11 +698,27 @@ static NSString *const kPageContexts[3] = { @"prefs/Machine", @"prefs/Input", @"
 {
     _biosState = [NSTextField labelWithString:@""];
     [self refreshRoms];
+    const coleco_rom_item *it = colecosession_rom_item(0);
+    NSTextField *detail = [NSTextField labelWithString:
+        [NSString stringWithFormat:@"%s \u00b7 %u bytes \u00b7 CRC-32 %08X",
+                                   it->file, it->size, it->crc]];
+    detail.font = [NSFont systemFontOfSize:NSFont.smallSystemFontSize];
+    detail.textColor = NSColor.secondaryLabelColor;
+    NSTextField *note = [self noteLabel:
+        @"The ColecoVision BIOS is copyrighted, so none comes with the app. "
+        @"Nothing runs without it."];
+    NSTextField *how = [self noteLabel:
+        @"A file, a zip (MAME's coleco.zip works) or a folder, recognised by "
+        @"size and checksum. Takes effect at the next power cycle."];
     NSArray<NSArray<NSView *> *> *rows = @[
-        @[ [self sectionLabel:@"ROMs"], [NSTextField labelWithString:@""] ],
-        @[ [NSTextField labelWithString:@"Import"], [self romButtons] ],
+        @[ [self sectionLabel:@"Console"], [NSTextField labelWithString:@""] ],
+        @[ [NSTextField labelWithString:@""], note ],
+        @[ [NSTextField labelWithString:[NSString stringWithUTF8String:it->name]], _biosState ],
+        @[ [NSTextField labelWithString:@""], detail ],
+        @[ [self sectionLabel:@"Import"], [NSTextField labelWithString:@""] ],
+        @[ [NSTextField labelWithString:@"Import a BIOS"], [self romButtons] ],
+        @[ [NSTextField labelWithString:@""], how ],
         @[ [NSTextField labelWithString:@"Kept in"], [self romPathLabel] ],
-        @[ [NSTextField labelWithString:@"OS7.rom"], _biosState ],
     ];
     return [self pageWithRows:rows help:kPageContexts[2]];
 }
@@ -771,10 +795,10 @@ static NSString *const kPageContexts[3] = { @"prefs/Machine", @"prefs/Input", @"
  * whether OS7.rom is there. Importing applies at once, not on close. */
 - (NSView *)romButtons
 {
-    NSButton *files = [NSButton buttonWithTitle:@"Import BIOS…"
+    NSButton *files = [NSButton buttonWithTitle:@"Import…"
                                          target:self
                                          action:@selector(importBios:)];
-    NSButton *folder = [NSButton buttonWithTitle:@"Import from a Folder…"
+    NSButton *folder = [NSButton buttonWithTitle:@"Import a Folder…"
                                           target:self
                                           action:@selector(importBiosFolder:)];
     NSStackView *row = [NSStackView stackViewWithViews:@[ files, folder ]];
@@ -925,7 +949,8 @@ static NSString *const kPageContexts[3] = { @"prefs/Machine", @"prefs/Input", @"
 - (void)askForRoms:(NSString *)title text:(NSString *)text
 {
     NSAlert *a = [[NSAlert alloc] init];
-    [a setMessageText:title];
+    (void)title;
+    [a setMessageText:@"Needs BIOS"];
     [a setInformativeText:text];
     [a addButtonWithTitle:@"Import BIOS…"];
     [a addButtonWithTitle:@"Not Now"];
@@ -990,7 +1015,7 @@ static NSString *const kPageContexts[3] = { @"prefs/Machine", @"prefs/Input", @"
         colecosession_stop(_session);
         if (colecosession_start(_session, &o) == 0) {
             [log appendString:@"\n\nThe console was power-cycled with the "
-                              @"new ROMs."];
+                              @"new BIOS."];
         } else {
             [log appendFormat:@"\n\n%s", colecosession_last_error(_session)];
         }

@@ -67,7 +67,8 @@ void coleco_css_install(void)
         "}\n"
         "button.coleco-accent:hover {\n"
         "  background-image: none; background-color: #%06X; color: #FFFFFF;\n"
-        "}\n",
+        "}\n"
+        ".coleco-pill { padding: 1px 8px; border-radius: 9px; font-weight: bold; }\n",
         rgb, hover);
     provider = gtk_css_provider_new();
 #if GTK_CHECK_VERSION(4, 12, 0)
@@ -215,7 +216,7 @@ void coleco_window_import_bios(ColecoWindow *self, GtkWidget *over, gboolean fol
         GListStore *filters = g_list_store_new(GTK_TYPE_FILE_FILTER);
         GtkFileFilter *roms = gtk_file_filter_new();
         GtkFileFilter *all = gtk_file_filter_new();
-        gtk_file_filter_set_name(roms, "BIOS images and ROM sets (*.bin, *.rom, *.zip)");
+        gtk_file_filter_set_name(roms, "BIOS ROMs, or zips of them (*.bin, *.rom, *.zip)");
         gtk_file_filter_add_suffix(roms, "bin");
         gtk_file_filter_add_suffix(roms, "rom");
         gtk_file_filter_add_suffix(roms, "zip");
@@ -278,7 +279,7 @@ static void on_bios_needed_response(AdwAlertDialog *dlg, const char *response,
  * BIOS is in, the console starts (the stored cartridge, if any, with it). */
 static void show_bios_needed(ColecoWindow *self)
 {
-    AdwDialog *dlg = adw_alert_dialog_new("The ColecoVision needs its BIOS",
+    AdwDialog *dlg = adw_alert_dialog_new("Needs BIOS",
         "The ColecoVision BIOS (OS-7) is copyrighted firmware, so this app does "
         "not include it. Machine \xe2\x96\xb8 Import BIOS\xe2\x80\xa6 adds your own "
         "copy: the 8,192-byte OS7.rom, a zip such as MAME's coleco.zip, or a "
@@ -754,6 +755,7 @@ static GMenu *build_menu(void)
 {
     GMenu *menu = g_menu_new();
     GMenu *machine = g_menu_new();
+    GMenu *bios = g_menu_new();
     GMenu *view = g_menu_new();
     GMenu *fuji = g_menu_new();
     GMenu *app = g_menu_new();
@@ -762,9 +764,10 @@ static GMenu *build_menu(void)
     g_menu_append(machine, "_Eject Cartridge", "win.eject");
     g_menu_append(machine, "_Reset Console", "win.reset");
     g_menu_append(machine, "Reset to _CONFIG", "win.reset-config");
-    g_menu_append(machine, "Import _BIOS\xe2\x80\xa6", "win.import-bios");
-    g_menu_append(machine, "Import BIOS from a _Folder\xe2\x80\xa6", "win.import-bios-folder");
     g_menu_append_section(menu, NULL, G_MENU_MODEL(machine));
+    g_menu_append(bios, "Import _BIOS\xe2\x80\xa6", "win.import-bios");
+    g_menu_append(bios, "Import BIOS from a _Folder\xe2\x80\xa6", "win.import-bios-folder");
+    g_menu_append_section(menu, NULL, G_MENU_MODEL(bios));
 
     g_menu_append(view, "_Controllers (F9)", "win.controllers");
     g_menu_append(view, "_Debugger (F12)", "win.debugger");
@@ -782,6 +785,7 @@ static GMenu *build_menu(void)
     g_menu_append_section(menu, NULL, G_MENU_MODEL(app));
 
     g_object_unref(machine);
+    g_object_unref(bios);
     g_object_unref(view);
     g_object_unref(fuji);
     g_object_unref(app);

@@ -244,31 +244,40 @@ static void build_input(void)
 static void refresh_roms(void)
 {
     if (!g_rom_state) return;
-    set_text(g_rom_state, colecosession_bios_available(g_session) ? "Imported" : "Not imported");
+    set_text(g_rom_state, colecosession_rom_item_available(g_session, 0) ? "Imported" : "Not imported");
 }
 
 static void build_roms(void)
 {
-    char path[1100];
+    char path[1100], line[300];
     char *chr;
+    const coleco_rom_item *it = colecosession_rom_item(0);
     int ypos = 6;
-    heading(PG_ROMS, "ROMs", ypos); ypos += 24;
-    label(PG_ROMS, "The BIOS is not part of the app. Import your own OS7.rom from a file, a zip (MAME's "
-                   "coleco.zip works) or a folder; it is recognised by size and checksum, whatever it is "
-                   "named. Kept in:", MARGIN, ypos, PREFS_W - 2 * MARGIN, 52);
-    ypos += 58;
+    heading(PG_ROMS, "Console", ypos); ypos += 24;
+    label(PG_ROMS, "The ColecoVision BIOS is copyrighted, so none comes with the app. Nothing runs "
+                   "without it.", MARGIN, ypos, PREFS_W - 2 * MARGIN, 36);
+    ypos += 40;
+    label(PG_ROMS, it->name, MARGIN, ypos, PREFS_W - 2 * MARGIN - 150, 18);
+    g_rom_state = add(L"STATIC", "", SS_RIGHT | SS_NOPREFIX, PG_ROMS, IDC_ROM_STATE, PREFS_W - MARGIN - 140, ypos,
+                      140, 18);
+    ypos += 20;
+    snprintf(line, sizeof line, "%s - %u bytes - CRC-32 %08X", it->file, it->size, it->crc);
+    label(PG_ROMS, line, MARGIN, ypos, PREFS_W - 2 * MARGIN, 18);
+    ypos += 34;
+    heading(PG_ROMS, "Import", ypos); ypos += 24;
+    label(PG_ROMS, "A file, a zip (MAME's coleco.zip works) or a folder, recognised by size and "
+                   "checksum. Takes effect at the next power cycle.",
+          MARGIN, ypos, PREFS_W - 2 * MARGIN, 36);
+    ypos += 42;
+    button(PG_ROMS, IDC_IMPORT, "Import...", MARGIN, ypos, 110);
+    button(PG_ROMS, IDC_IMPORT_FOLDER, "Import a Folder...", MARGIN + 120, ypos, 150);
+    ypos += 38;
+    label(PG_ROMS, "Kept in", MARGIN, ypos, 80, 18);
     snprintf(path, sizeof path, "%s", colecosession_roms_path(g_session));
     for (chr = path; *chr; chr++)
         if (*chr == '/') *chr = '\\';
-    add(L"STATIC", path, SS_LEFT | SS_NOPREFIX | SS_PATHELLIPSIS, PG_ROMS, IDC_ROM_PATH, MARGIN, ypos,
-        PREFS_W - 2 * MARGIN, 18);
-    ypos += 30;
-    button(PG_ROMS, IDC_IMPORT, "Import BIOS...", MARGIN, ypos, 130);
-    button(PG_ROMS, IDC_IMPORT_FOLDER, "Import from a Folder...", MARGIN + 140, ypos, 180);
-    ypos += 42;
-    label(PG_ROMS, "ColecoVision BIOS (OS7.rom)", MARGIN, ypos, 280, 18);
-    g_rom_state = add(L"STATIC", "", SS_RIGHT | SS_NOPREFIX, PG_ROMS, IDC_ROM_STATE, PREFS_W - MARGIN - 140, ypos,
-                      140, 18);
+    add(L"STATIC", path, SS_LEFT | SS_NOPREFIX | SS_PATHELLIPSIS, PG_ROMS, IDC_ROM_PATH, MARGIN + 70, ypos,
+        PREFS_W - 2 * MARGIN - 70, 18);
     refresh_roms();
 }
 

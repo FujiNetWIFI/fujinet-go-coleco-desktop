@@ -9,6 +9,7 @@
  */
 
 #include "import.h"
+#include "help/help_compat.h"
 
 #include <commdlg.h>
 #include <shlobj.h>
@@ -94,8 +95,15 @@ static void import_one(const char *path, void *ctx)
 static int report_roms(HWND owner, import_log *l)
 {
     if (l->log[0])
-        MessageBoxA(owner, l->log, l->imported ? "BIOS Imported" : "Nothing Imported",
+    {
+        /* UTF-8 in the session's messages (paths): the wide box shows it right */
+        wchar_t *wt = coleco_wide_dup(l->log);
+        wchar_t *wc = coleco_wide_dup(l->imported ? "BIOS Imported" : "Nothing Imported");
+        MessageBoxW(owner, wt ? wt : L"", wc ? wc : L"",
                     (l->imported ? MB_ICONINFORMATION : MB_ICONWARNING) | MB_OK);
+        free(wt);
+        free(wc);
+    }
     return l->imported;
 }
 

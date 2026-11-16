@@ -441,10 +441,11 @@ tab for each group of settings below: Machine, Input and ROMs.
 <!-- context: prefs/ROMs -->
 ## ROMs settings
 
-- **Import BIOS…** and **Import from a Folder…**: add your own BIOS (see
-  [Importing it](#importing-it)).
-- **ROM folder**: where imported files are kept, with an **Open** button.
-- **ColecoVision BIOS (OS7.rom)**: whether it is imported.
+- **ColecoVision BIOS (OS7.rom)**: whether it is imported, with its size and
+  checksum.
+- **Import a BIOS**: **Import…** and **Import a Folder…** add your own BIOS (see
+  [Importing it](#importing-it)). It takes effect at the next power cycle.
+- **Kept in**: where imported files are kept.
 
 ## The settings file
 
