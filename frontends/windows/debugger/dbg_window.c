@@ -34,9 +34,9 @@
  *
  * Environment hooks, for captures and tests: COLECO_DEBUGGER_TAB (a tab number,
  * or the start of a tab's name or label, in any case; the old "cpu", "vdp",
- * "vram" and "io" still work), COLECO_WATCH ("x,y": watches), COLECO_WATCH_BREAK (a
- * write-when-changed breakpoint on a range), COLECO_MEM_GOTO (show a range in
- * Memory), COLECO_HISTORY (record from the start), COLECO_POPOUT (a tab, as for
+ * "vram" and "io" still work), COLECO_DEBUGGER_WATCH ("x,y": watches), COLECO_DEBUGGER_WATCH_BREAK (a
+ * write-when-changed breakpoint on a range), COLECO_DEBUGGER_MEM_GOTO (show a range in
+ * Memory), COLECO_DEBUGGER_HISTORY (record from the start), COLECO_DEBUGGER_POPOUT (a tab, as for
  * COLECO_DEBUGGER_TAB) and the Video tab's COLECO_DEBUGGER_VIDEO_* (read by
  * colecovid_tab_new).
  *
@@ -427,6 +427,15 @@ static int window_dpi(HWND hwnd)
         if (val) return (int)val;
     }
     return system_dpi();
+}
+
+/* High-contrast themes: the accent fills give way to the system's selection colours. */
+static int high_contrast(void)
+{
+    HIGHCONTRASTA hc;
+    memset(&hc, 0, sizeof hc);
+    hc.cbSize = sizeof hc;
+    return SystemParametersInfoA(SPI_GETHIGHCONTRAST, sizeof hc, &hc, 0) && (hc.dwFlags & HCF_HIGHCONTRASTON);
 }
 
 static int scaled(const debugger *dbgwin, int val) { return MulDiv(val, dbgwin->dpi, 96); }
@@ -1773,7 +1782,7 @@ static void on_bp_type(debugger *dbgwin)
 {
     const int sel = (int)SendMessageA(dbgwin->bp_type, CB_GETCURSEL, 0, 0);
     const int port = sel >= 4;
-    SendMessageW(dbgwin->bp_start, EM_SETCUEBANNER, TRUE, (LPARAM)(port ? L"port, e.g. FC" : L"8010 / label / expression"));
+    SendMessageW(dbgwin->bp_start, EM_SETCUEBANNER, TRUE, (LPARAM)(port ? L"port, e.g. FC" : L"8010 or a label"));
     SendMessageW(dbgwin->bp_end, EM_SETCUEBANNER, TRUE, (LPARAM)(port ? L"(last port)" : L"(end)"));
 }
 
@@ -1948,8 +1957,9 @@ static void paint_disasm(debugger *dbgwin, HWND hwnd, HDC dc)
         int len;
         SetRect(&row, 0, pos_y, cur.right, pos_y + dbgwin->line_h);
         if (is_pc) {
-            FillRect(dc, &row, dbgwin->accent);
-            fg = INK_RGB;
+            const int contrast = high_contrast();
+            FillRect(dc, &row, contrast ? GetSysColorBrush(COLOR_HIGHLIGHT) : dbgwin->accent);
+            fg = contrast ? GetSysColor(COLOR_HIGHLIGHTTEXT) : INK_RGB;
         } else if (sel) {
             FillRect(dc, &row, GetSysColorBrush(COLOR_HIGHLIGHT));
             fg = GetSysColor(COLOR_HIGHLIGHTTEXT);
@@ -2840,9 +2850,10 @@ static void draw_run_button(debugger *dbgwin, const DRAWITEMSTRUCT *di)
     const int stopped = colecodebug_is_paused(dbgwin->dbg);
     RECT row = di->rcItem;
     if (stopped) {
-        FillRect(di->hDC, &row, dbgwin->accent);
+        const int contrast = high_contrast();
+        FillRect(di->hDC, &row, contrast ? GetSysColorBrush(COLOR_HIGHLIGHT) : dbgwin->accent);
         FrameRect(di->hDC, &row, (HBRUSH)GetStockObject(GRAY_BRUSH));
-        SetTextColor(di->hDC, INK_RGB);
+        SetTextColor(di->hDC, contrast ? GetSysColor(COLOR_HIGHLIGHTTEXT) : INK_RGB);
     } else {
         DrawFrameControl(di->hDC, &row, DFC_BUTTON, DFCS_BUTTONPUSH | ((di->itemState & ODS_SELECTED) ? DFCS_PUSHED : 0));
         SetTextColor(di->hDC, GetSysColor(COLOR_BTNTEXT));
@@ -3173,13 +3184,21 @@ static int tab_from_env_var(const char *var)
     return -1;
 }
 
-/* For captures and tests: COLECO_HISTORY records from the start, COLECO_WATCH="x,y"
- * adds watches, COLECO_WATCH_BREAK="x" a write-when-changed breakpoint on it,
- * COLECO_MEM_GOTO="x" shows it in Memory, COLECO_POPOUT=<tab> peels a tab off. */
+/* For captures and tests: COLECO_DEBUGGER_HISTORY records from the start, COLECO_DEBUGGER_WATCH="x,y"
+ * adds watches, COLECO_DEBUGGER_WATCH_BREAK="x" a write-when-changed breakpoint on it,
+ * COLECO_DEBUGGER_MEM_GOTO="x" shows it in Memory, COLECO_DEBUGGER_POPOUT=<tab> peels a tab off.
+ * (the unprefixed COLECO_HISTORY, _WATCH, _WATCH_BREAK, _MEM_GOTO, _POPOUT still work). */
+/* The prefixed name every frontend reads, else the older unprefixed one. */
+static const char *env_hook(const char *name, const char *fallback)
+{
+    const char *val = getenv(name);
+    return val && *val ? val : getenv(fallback);
+}
+
 static void apply_env_hooks(debugger *dbgwin)
 {
-    const char *hist = getenv("COLECO_HISTORY"), *watch_text = getenv("COLECO_WATCH"), *break_text = getenv("COLECO_WATCH_BREAK"),
-               *goto_text = getenv("COLECO_MEM_GOTO");
+    const char *hist = env_hook("COLECO_DEBUGGER_HISTORY", "COLECO_HISTORY"), *watch_text = env_hook("COLECO_DEBUGGER_WATCH", "COLECO_WATCH"), *break_text = env_hook("COLECO_DEBUGGER_WATCH_BREAK", "COLECO_WATCH_BREAK"),
+               *goto_text = env_hook("COLECO_DEBUGGER_MEM_GOTO", "COLECO_MEM_GOTO");
     uint16_t low, high;
     int pop;
 
@@ -3197,7 +3216,8 @@ static void apply_env_hooks(debugger *dbgwin)
         colecodebug_breakpoint_add(dbgwin->dbg, COLECODEBUG_BP_WRITE, low, high, "value != old", err, sizeof err);
     }
     if (goto_text && *goto_text && colecosym_parse_range(dbgwin->dbg, goto_text, &low, &high)) show_in_memory(dbgwin, low, high);
-    pop = tab_from_env_var("COLECO_POPOUT");
+    pop = tab_from_env_var("COLECO_DEBUGGER_POPOUT");
+    if (pop < 0) pop = tab_from_env_var("COLECO_POPOUT");
     if (pop >= 0) pop_out(dbgwin, pop);
     resync(dbgwin);
 }
