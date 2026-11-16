@@ -919,7 +919,7 @@ static NSTextField *bpCell(NSString *text, CGFloat width, BOOL bold)
      * the tab is tall. The stack is the scroll view's document, pinned to
      * the top and to the clip view's width so rows keep the tab's width. */
     NSStackView *header = hstack(@[bpCell(@"On  #", 70, YES), bpCell(@"Type", 60, YES), bpCell(@"Range", 190, YES),
-                                   bpCell(@"Condition", 0, YES), bpCell(@"Hits", 60, YES), bpCell(@"", 70, YES)]);
+                                   bpCell(@"Condition", 0, YES), bpCell(@"Hits", 60, YES), bpCell(@"", 80, YES), bpCell(@"", 70, YES)]);
     header.distribution = NSStackViewDistributionFill;
     _bpList = vstack(@[]);
     _bpList.translatesAutoresizingMaskIntoConstraints = NO;
@@ -1557,6 +1557,21 @@ static NSTextField *bpCell(NSString *text, CGFloat width, BOOL bold)
     [self refreshNow];
 }
 
+/* Replaces the entry's condition with the Condition field's text. */
+- (void)bpSetCondition:(NSButton *)sender
+{
+    char err[256];
+    err[0] = '\0';
+    if (!colecodebug_breakpoint_set_condition(_dbg, (int)sender.tag, _bpCond.stringValue.UTF8String, err, (int)sizeof err)) {
+        NSString *reason = cstr(err);
+        _bpErr.stringValue = reason.length ? reason : @"The condition was refused";
+        return;
+    }
+    _bpErr.stringValue = @"";
+    _bpCond.stringValue = @"";
+    [self refreshNow];
+}
+
 - (void)bpRemove:(NSButton *)sender
 {
     colecodebug_breakpoint_remove(_dbg, (int)sender.tag);
@@ -1747,8 +1762,12 @@ static NSTextField *bpCell(NSString *text, CGFloat width, BOOL bold)
 - (void)refreshVisibleForce:(BOOL)force
 {
     [self refreshRegs];
+    /* the live poll of a running machine skips the tabs that read the memory
+     * map or the code: they refresh on a stop, a command or when shown */
+    const BOOL liveRead = !force && !colecodebug_is_paused(_dbg);
     for (int slot = 0; slot < TAB_COUNT; slot++) {
         if (![self tabVisible:slot]) continue;
+        if (liveRead && (slot == MT_DISASM || slot == MT_MEMORY || slot == MT_CART || slot == MT_SYMBOLS)) continue;
         switch (slot) {
         case MT_DISASM: [self refreshDisasm]; break;
         case MT_MEMORY: [self refreshMem]; break;
@@ -1961,9 +1980,13 @@ static NSTextField *bpCell(NSString *text, CGFloat width, BOOL bold)
         NSButton *remove = [self button:@"Remove" action:@selector(bpRemove:)];
         remove.tag = bps[idx].id;
         [remove.widthAnchor constraintEqualToConstant:70].active = YES;
+        NSButton *condition = [self button:@"Set Cond." action:@selector(bpSetCondition:)];
+        condition.tag = bps[idx].id;
+        condition.toolTip = @"Replace this breakpoint's condition with the text in the Condition field (empty removes it)";
+        [condition.widthAnchor constraintEqualToConstant:80].active = YES;
         NSStackView *row = hstack(@[box, bpCell(type, 60, NO), bpCell(range, 190, NO),
                                     bpCell(cstr(bps[idx].condition), 0, NO),
-                                    bpCell([NSString stringWithFormat:@"%u", bps[idx].hits], 60, NO), remove]);
+                                    bpCell([NSString stringWithFormat:@"%u", bps[idx].hits], 60, NO), condition, remove]);
         row.distribution = NSStackViewDistributionFill;
         [_bpList addArrangedSubview:row];
         [row.widthAnchor constraintEqualToAnchor:_bpList.widthAnchor].active = YES;
