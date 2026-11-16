@@ -41,6 +41,10 @@ extern "C" {
  * "dark blue", the pair of the ADAM app's light blue. Held and remap-target
  * buttons; text on it is white. */
 #define COLECOSESSION_ACCENT_RGB 0x5455ED
+/* INK is the text on an accent fill; LIGHT is the accent used as TEXT or a
+ * fill on a dark theme, where the dark blue is unreadable (use black ink). */
+#define COLECOSESSION_ACCENT_INK_RGB   0xFFFFFF
+#define COLECOSESSION_ACCENT_LIGHT_RGB 0xA9AAF7
 
 /* The ColecoVision BIOS. One image, unlike the ADAM's three, and unlike the
  * ADAM app this one is not redistributed -- see COMPLIANCE.md. */
