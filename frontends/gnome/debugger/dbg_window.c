@@ -229,6 +229,9 @@ static void install_css(void)
 #endif
 }
 
+/* The enabled-breakpoint dot: a red that reads on both themes. */
+static const char *dot_colour(void) { return dark_theme() ? "#ff7b72" : "#e01b24"; }
+
 static void accent_tag_style(GtkTextTag *tag)
 {
     char fill[16], ink[16];
@@ -250,6 +253,11 @@ static void on_dark_changed(GObject *obj, GParamSpec *spec, gpointer user_data)
     DbgWin *self = user_data;
     (void)obj; (void)spec;
     install_css();
+    if (self->disasm) {
+        GtkTextTag *dot = gtk_text_tag_table_lookup(
+            gtk_text_buffer_get_tag_table(gtk_text_view_get_buffer(self->disasm)), "bp_on");
+        if (dot) g_object_set(dot, "foreground", dot_colour(), NULL);
+    }
     if (self->tag_pc) accent_tag_style(self->tag_pc);
     if (self->tag_mem_mark) {
         char fill[16], ink[16];
@@ -1202,7 +1210,7 @@ static void running_hint(DbgWin *self, int tab)
         self->line_count = 0;
     } else {
         set_text_at(self->cart_text, "Pause the machine (F5) to read its memory map and cartridge state.\n", FALSE);
-        set_text_at(self->io_text, "Pause the machine (F5) to read the controllers, VDP, CPU and Super Game Module.\n", FALSE);
+        set_text_at(self->io_text, "Pause the machine (F5) to read the I/O state.\n", FALSE);
     }
 }
 
@@ -2067,6 +2075,18 @@ static gboolean on_key(GtkEventControllerKey *ctl, guint keyval, guint code,
         return TRUE;
     case GDK_KEY_F9: toggle_selected(self); return TRUE;
     case GDK_KEY_F12: gtk_window_close(self->win); return TRUE;
+    case GDK_KEY_Page_Down:
+    case GDK_KEY_Page_Up:
+        /* Ctrl+PageDown / PageUp walk the tabs even from inside an entry */
+        if (mods & GDK_CONTROL_MASK) {
+            int count = gtk_notebook_get_n_pages(self->notebook);
+            int step = keyval == GDK_KEY_Page_Down ? 1 : count - 1;
+            if (count > 0)
+                gtk_notebook_set_current_page(self->notebook,
+                                              (gtk_notebook_get_current_page(self->notebook) + step) % count);
+            return TRUE;
+        }
+        return FALSE;
     default: return FALSE;
     }
 }
@@ -2242,7 +2262,7 @@ static GtkWidget *build_disasm(DbgWin *self)
     GtkWidget *hint;
 
     /* later tags win: the selection under the PC line */
-    gtk_text_buffer_create_tag(tbuf, "bp_on", "foreground", "#e01b24", NULL);
+    gtk_text_buffer_create_tag(tbuf, "bp_on", "foreground", dot_colour(), NULL);
     gtk_text_buffer_create_tag(tbuf, "bp_off", "foreground", "#8a8a8a", NULL);
     gtk_text_buffer_create_tag(tbuf, "sel", "paragraph-background", "rgba(128,128,128,0.35)", NULL);
     self->tag_pc = accent_tag(self->disasm, "pc");
@@ -2596,7 +2616,7 @@ static void apply_env_hooks(DbgWin *self)
 void coleco_debugger_show(GtkWindow *parent, colecosession *session)
 {
     DbgWin *self;
-    GtkWidget *toolbar, *header, *root, *notebook, *overlay;
+    GtkWidget *toolbar, *header, *root, *notebook, *overlay, *scroller;
     GtkEventController *keys;
     int tab;
 
@@ -2616,7 +2636,7 @@ void coleco_debugger_show(GtkWindow *parent, colecosession *session)
     g_object_set_data(G_OBJECT(self->win), "dbgwin", self);
     g_object_weak_ref(G_OBJECT(self->win), dbgwin_free, self);
     gtk_window_set_title(self->win, "ColecoVision Debugger");
-    gtk_window_set_default_size(self->win, 1150, 820);
+    gtk_window_set_default_size(self->win, 1310, 820);
     gtk_window_set_transient_for(self->win, parent);
     gtk_window_set_application(self->win, gtk_window_get_application(parent));
     gtk_window_set_destroy_with_parent(self->win, TRUE);
@@ -2638,6 +2658,7 @@ void coleco_debugger_show(GtkWindow *parent, colecosession *session)
     notebook = gtk_notebook_new();
     self->notebook = GTK_NOTEBOOK(notebook);
     gtk_widget_set_vexpand(notebook, TRUE);
+    gtk_notebook_set_scrollable(self->notebook, TRUE);
     for (tab = 0; tab < TAB_COUNT; tab++) {
         /* each page keeps its identity when it is moved around */
         g_object_set_data(G_OBJECT(self->pages[tab]), "tab-index", GINT_TO_POINTER(tab + 1));
@@ -2658,9 +2679,14 @@ void coleco_debugger_show(GtkWindow *parent, colecosession *session)
     gtk_box_append(GTK_BOX(root), gtk_separator_new(GTK_ORIENTATION_HORIZONTAL));
     gtk_box_append(GTK_BOX(root), build_regs(self));
 
+    /* A narrow window scrolls the whole debugger instead of clipping it: the
+     * pages' widest content would otherwise set the window's minimum width. */
+    scroller = gtk_scrolled_window_new();
+    gtk_scrolled_window_set_policy(GTK_SCROLLED_WINDOW(scroller), GTK_POLICY_AUTOMATIC, GTK_POLICY_AUTOMATIC);
+    gtk_scrolled_window_set_child(GTK_SCROLLED_WINDOW(scroller), root);
     overlay = adw_toast_overlay_new();
     self->toasts = ADW_TOAST_OVERLAY(overlay);
-    adw_toast_overlay_set_child(self->toasts, root);
+    adw_toast_overlay_set_child(self->toasts, scroller);
 
     /* the status line -- why the machine stopped -- is the title's subtitle */
     header = adw_header_bar_new();
