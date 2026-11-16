@@ -29,6 +29,7 @@ add_executable(fujinet-go-coleco-macos MACOSX_BUNDLE
   help/HelpWindow.m
   controllers/ControllersWindow.m
   debugger/DebuggerWindow.m
+  debugger/VideoTab.m
   "${COLECO_ICNS}"
 )
 set_source_files_properties("${COLECO_ICNS}" PROPERTIES

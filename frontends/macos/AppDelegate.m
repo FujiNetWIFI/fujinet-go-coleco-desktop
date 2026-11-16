@@ -264,7 +264,7 @@ static NSString *const kPageContexts[3] = { @"prefs/Machine", @"prefs/Input", @"
 - (BOOL)handleAppKey:(uint32_t)keysym
 {
     if (keysym == COLECOSESSION_KEYSYM_F9) { [_controllers toggle]; return YES; }
-    if (keysym == COLECOSESSION_KEYSYM_F12) { [DebuggerWindow showForSession:_session]; return YES; }
+    if (keysym == COLECOSESSION_KEYSYM_F12) { [DebuggerWindow toggleForSession:_session]; return YES; }
     const int sysact = colecosession_key_sysaction(_session, keysym);
     if (sysact >= 0) { [self runSysaction:sysact]; return YES; }
     return NO;
