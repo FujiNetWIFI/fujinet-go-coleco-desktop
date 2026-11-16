@@ -39,22 +39,29 @@
   <screenshots>
     <screenshot type="default">
       <caption>The FujiNet CONFIG client browsing network hosts from the console</caption>
-      <image>https://raw.githubusercontent.com/FujiNetWIFI/fujinet-go-coleco-desktop/v0.4.1/data/screenshots/kde/1_running_config.png</image>
+      <image>https://raw.githubusercontent.com/FujiNetWIFI/fujinet-go-coleco-desktop/v0.10.0/data/screenshots/kde/1_running_config.png</image>
     </screenshot>
     <screenshot>
-      <caption>The built-in debugger's live VDP viewer</caption>
-      <image>https://raw.githubusercontent.com/FujiNetWIFI/fujinet-go-coleco-desktop/v0.4.1/data/screenshots/kde/2_vdp_debugger.png</image>
+      <caption>The built-in debugger's Video tab: the TMS9928A display with pixel, register, colour, line, timing and VRAM inspectors</caption>
+      <image>https://raw.githubusercontent.com/FujiNetWIFI/fujinet-go-coleco-desktop/v0.10.0/data/screenshots/kde/2_vdp_debugger.png</image>
     </screenshot>
     <screenshot>
       <caption>Preferences</caption>
-      <image>https://raw.githubusercontent.com/FujiNetWIFI/fujinet-go-coleco-desktop/v0.4.1/data/screenshots/kde/3_preferences.png</image>
+      <image>https://raw.githubusercontent.com/FujiNetWIFI/fujinet-go-coleco-desktop/v0.10.0/data/screenshots/kde/3_preferences.png</image>
     </screenshot>
   </screenshots>
   <releases>
     <!-- The CURRENT release templates its version from @PROJECT_VERSION@, so
          it cannot disagree with the tree; past releases are literal. The
          release job checks that this first entry is still a template. -->
-    <release version="@PROJECT_VERSION@" date="2026-11-13">
+    <release version="@PROJECT_VERSION@" date="2026-11-16">
+      <description>
+        <p>
+          The debugger gets the family's newer tools: twelve tabs with a Console prompt and expressions, Memory, Watches, Cart &amp; I/O, Trace and History, a Video tab (Display, Decoded, Beam and Values views, an inspector, Break on writes and per-line VDP register capture), a Sound tab for the SN76489 and the Super Game Module's AY, and Symbols. Registers are editable, breakpoints take conditions such as value &gt; old, and Read, Write, Access, In and Out breakpoints are new.
+        </p>
+      </description>
+    </release>
+    <release version="0.9.1" date="2026-11-13">
       <description>
         <p>
           Fixed a crash when quitting the app on macOS.
