@@ -140,6 +140,8 @@ static NSString *const kPageContexts[3] = { @"prefs/Machine", @"prefs/Input", @"
                     backing:NSBackingStoreBuffered
                       defer:NO];
     [_window setTitle:@"FujiNet Go ColecoVision"];
+    /* Full screen is where Game Mode (Info.plist) engages. */
+    [_window setCollectionBehavior:NSWindowCollectionBehaviorFullScreenPrimary];
     [_window center];
 
     _content = [[ColecoContentView alloc]
@@ -369,6 +371,10 @@ static NSString *const kPageContexts[3] = { @"prefs/Machine", @"prefs/Input", @"
     [[view addItemWithTitle:@"Debugger" action:@selector(showDebugger:)
               keyEquivalent:@"d"] setTarget:self];
     [view addItem:[NSMenuItem separatorItem]];
+    NSMenuItem *fs = [view addItemWithTitle:@"Enter Full Screen"
+                                     action:@selector(toggleFullScreen:)
+                              keyEquivalent:@"f"];
+    [fs setKeyEquivalentModifierMask:NSEventModifierFlagCommand | NSEventModifierFlagControl];
     NSMenuItem *tv = [view addItemWithTitle:@"TV Aspect (4:3)"
                                      action:@selector(toggleAspect:)
                               keyEquivalent:@""];

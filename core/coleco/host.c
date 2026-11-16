@@ -18,6 +18,9 @@
 #include "audioring.h"
 #ifdef __APPLE__
 #include <pthread/qos.h>
+#include <mach/mach.h>
+#include <mach/mach_time.h>
+#include <mach/thread_policy.h>
 #endif
 #include "colecovidcap.h"
 #include "fujinet_cart.h"
@@ -358,6 +361,35 @@ static void add_ns(struct timespec *t, long ns)
     }
 }
 
+#if defined(__APPLE__)
+/* macOS paces the way a game does: the machine thread asks the scheduler for
+ * a real-time slot (THREAD_TIME_CONSTRAINT_POLICY) -- one frame period, a few
+ * milliseconds of work, preemptible -- so a busy desktop or a power-saving core
+ * does not make a frame late. QOS_CLASS_USER_INTERACTIVE (set when the thread
+ * starts) stays as the fallback if the kernel refuses. */
+static mach_timebase_info_data_t s_tb;
+
+static uint64_t ns_to_mach(uint64_t ns)
+{
+    if (s_tb.denom == 0)
+        mach_timebase_info(&s_tb);
+    return ns * s_tb.denom / s_tb.numer;
+}
+
+static void apple_realtime_begin(long frame_ns)
+{
+    thread_time_constraint_policy_data_t p;
+    p.period = (uint32_t)ns_to_mach((uint64_t)frame_ns);
+    p.computation = (uint32_t)ns_to_mach(5000000ULL);       /* ~5 ms of work */
+    p.constraint = (uint32_t)ns_to_mach((uint64_t)frame_ns);
+    p.preemptible = 1;
+    mach_port_t self = mach_thread_self();
+    thread_policy_set(self, THREAD_TIME_CONSTRAINT_POLICY,
+                      (thread_policy_t)&p, THREAD_TIME_CONSTRAINT_POLICY_COUNT);
+    mach_port_deallocate(mach_task_self(), self);
+}
+#endif
+
 static long ts_diff_ns(const struct timespec *a, const struct timespec *b)
 {
     return (long)((a->tv_sec - b->tv_sec) * 1000000000L +
@@ -371,7 +403,14 @@ static long ts_diff_ns(const struct timespec *a, const struct timespec *b)
  * extension the BSD-derived libc never picked up) and takes the same path. */
 static void sleep_until(const struct timespec *next, const struct timespec *now)
 {
-#if defined(_WIN32) || defined(__APPLE__)
+#if defined(__APPLE__)
+    /* An absolute deadline on the mach clock: no drift between reading the
+     * time and starting the sleep, which a relative nanosleep has. */
+    long remain = ts_diff_ns(next, now);
+    if (remain <= 0)
+        return;
+    mach_wait_until(mach_absolute_time() + ns_to_mach((uint64_t)remain));
+#elif defined(_WIN32)
     long remain = ts_diff_ns(next, now);
     struct timespec rel;
     if (remain <= 0) return;
@@ -446,6 +485,7 @@ static void *machine_thread(void *arg)
     /* Pacing jitter on this thread is audible as uneven tempo: ask for the
      * top interactive class so the scheduler does not coalesce its timers. */
     pthread_set_qos_class_self_np(QOS_CLASS_USER_INTERACTIVE, 0);
+    apple_realtime_begin(frame_ns);
 #endif
 
     /* Bring the cartridge up here rather than on the caller's thread: the TCP
