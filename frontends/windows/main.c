@@ -591,7 +591,7 @@ static LRESULT CALLBACK wndproc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lpara
             return 0;
         }
         if (wparam == VK_F12) {
-            if (!(lparam & (1 << 30))) coleco_debugger_show(hwnd, g_session);
+            if (!(lparam & (1 << 30))) coleco_debugger_toggle(hwnd, g_session);
             return 0;
         }
         /* Ctrl+Shift+H is the Help's, taken before the message reaches here */
@@ -677,7 +677,7 @@ static LRESULT CALLBACK wndproc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lpara
             coleco_controllers_window_toggle(hwnd, g_session);
             return 0;
         case IDM_DEBUGGER:
-            coleco_debugger_show(hwnd, g_session);
+            coleco_debugger_toggle(hwnd, g_session);
             return 0;
         case IDM_TV_ASPECT: {
             HMENU m = GetMenu(hwnd);

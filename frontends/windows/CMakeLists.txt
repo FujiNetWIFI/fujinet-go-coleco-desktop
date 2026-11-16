@@ -24,6 +24,7 @@ add_executable(fujinet-go-coleco-windows WIN32
   prefs.c
   controllers/controllers_window.c
   debugger/dbg_window.c
+  debugger/dbg_video.c
   resource.rc
 )
 target_include_directories(fujinet-go-coleco-windows PRIVATE
