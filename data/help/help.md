@@ -457,8 +457,8 @@ bindings).
 
 # Debugger
 
-The Debugger (<kbd>F12</kbd>) stops the console and shows what it is doing.
-It has four tabs; closing it lets the console go on as it was.
+The Debugger (<kbd>F12</kbd>) stops the console and shows what it is doing. It
+has twelve tabs; closing it lets the console go on as it was.
 
 | Button | Does |
 |---|---|
@@ -466,34 +466,137 @@ It has four tabs; closing it lets the console go on as it was.
 | Step Into (<kbd>F7</kbd>) | One instruction |
 | Step Over (<kbd>F8</kbd>) | Over a call |
 | Step Out (<kbd>Shift+F8</kbd>) | On until the routine returns |
+| Run to Cursor | On to the selected line |
 | Go to addr / symbol | Moves the disassembly there |
-| Trace | Records every instruction in a ring |
+| Pop Out | Moves the tab that shows into a window of its own; **Dock** puts it back |
 | Help | Opens the topic of the tab that shows |
 
-<!-- context: debugger/cpu -->
-## CPU
+The Z80's registers and flags are in the strip under every tab: click one, type
+a new value and press Enter while the console is stopped.
 
-The Z80 disassembled at the PC, with labels and the breakpoints in the gutter;
-click a line to toggle its breakpoint. Beside it are the registers (edit a value
-and press Enter while stopped), the breakpoints (**Add** an address or a symbol;
-**Clear all**) and a memory view (type an address or a symbol). Addresses take
-`FC5D`, `$FC5D`, `0xFC5D` or a symbol name; the EOS and OS-7 symbols are known.
+<!-- context: debugger/console -->
+## Console
 
-<!-- context: debugger/vdp -->
-## VDP
+The Console takes short commands, with history and completion on <kbd>Tab</kbd>.
+Addresses are `FC5D`, `$FC5D`, `0xFC5D`, decimal or a symbol (bare hex is hex
+unless it is a symbol), and expressions work: registers (`a`, `hl`, `sp`), flags,
+`[addr]` for a byte, `{addr}` for a word, symbols, `frame` and `cycles`. A
+breakpoint's condition is such an expression, for example `a == 5`, and on a
+watchpoint it can use `value`, `addr` and `old`, for instance
+`bpw $6000 if value > old`. `help` lists the commands.
 
-The TMS9928A, decoded from its live video memory: the name table, the pattern
-banks (choose Bank 0, 1 or 2), the sprites with their attribute table, the
-palette, and the registers with the table addresses the beam is fetching from.
-The VRAM view shows 16K a page at a time with ◀ and ▶; type
-`addr [bytes...]`, for example `1800: 41 42 43`, and press Enter to write.
-Addresses wrap at 16K.
+| Command | Does |
+|---|---|
+| `step`, `over`, `out` | One instruction; over a call; to the return |
+| `run`, `stop`, `frame` | Go on, break, or run one frame |
+| `runto` | Runs to an address |
+| `break` | An execute breakpoint |
+| `bpr`, `bpw`, `bpa` | Memory reads, writes, or both |
+| `bpin`, `bpout` | I/O port reads or writes |
+| `delete`, `enable`, `clear` | Manage breakpoints (also `disable`, `breaks`, `hits`) |
+| `print`, `regs`, `set` | Evaluate; show or set the registers |
+| `mem`, `poke` | Dumps memory; writes bytes |
+| `disasm`, `find` | Disassembles; searches memory |
+| `watch`, `unwatch` | Variables to keep an eye on |
+| `trace` | Shows the trace |
+| `map`, `io`, `cart` | The memory map, ports and controllers, cartridge |
+| `sound`, `video` | The sound chips; the video chip |
+| `symbols`, `label`, `labels` | Symbols |
+| `save` | Writes `ram`, `vram`, `regs` or `trace` to a file |
+
+<!-- context: debugger/disassembly -->
+## Disassembly
+
+The Z80 disassembled at the PC, with symbols, and the breakpoints in the gutter
+(red when on, grey when off); click a line to toggle its breakpoint, or press
+<kbd>F9</kbd>. **Follow PC** keeps the current line in view. The OS-7 symbols
+are known; load more with **Load Symbols**.
+
+<!-- context: debugger/memory -->
+## Memory
+
+A hex view of the Z80's 64K as the CPU sees it: the OS-7 ROM, the RAM, and the
+cartridge. Type an address or a symbol after **Address:** and press Enter.
+**Poke** writes a byte while the console is stopped. **Search** finds hex bytes
+or text, and **Find Next** and **Find Previous** step through the matches.
+
+<!-- context: debugger/breakpoints -->
+## Breakpoints
+
+Execute breakpoints, memory read, write and access watchpoints and I/O port
+watchpoints, each with a condition, a hit count, and enable or disable. **Add**
+makes one. When a watchpoint stops the console the status line says what it did,
+for instance `wrote $6010 = $12 (was $11)`.
+
+<!-- context: debugger/watches -->
+## Watches
+
+Variables to keep an eye on, with their live values while the console is
+stopped. **Show in Memory** jumps to it, and **Break on Change** adds a write
+breakpoint that fires when the value changes.
+
+<!-- context: debugger/cart -->
+## Cart and I/O
+
+The cartridge (its mapper and bank, and the FujiNet mailbox and boot state), the
+memory map (every range the console answers in), the two controllers and their
+strobe, the video chip's latch and interrupt, the NMI, and the Super Game Module
+and its sound chip when fitted.
 
 <!-- context: debugger/trace -->
 ## Trace
 
-With **Trace** on, the last instructions executed, with the registers at each:
-`PC AF BC DE HL SP`. With it off the tab says so.
+Every instruction the Z80 runs, live. **Record** turns it on; each instruction is
+kept with its address, bytes, registers and flags (the console runs a little
+slower while it records). **Branches only** shows jumps and calls, **In range**
+a range, and **Clear** empties it. A halted CPU shows as one line with a repeat
+count.
+
+<!-- context: debugger/history -->
+## History
+
+The same record as the Trace tab, shown when the console stops: the instructions
+leading up to a breakpoint or watchpoint, newest at the bottom.
+
+<!-- context: debugger/video -->
+## Video
+
+The TMS9928A, with the picture on the left and its sections on the right. The
+console records the registers for each line, so split screens and scrolling show.
+
+| View | Shows |
+|---|---|
+| Display | The last finished frame, as the screen showed it |
+| Decoded | One source: Screen, Patterns, Sprites or Palette |
+| Beam | Stopped only: where the beam was in this frame |
+| Values | The tables as hex, with the VRAM hex view |
+
+**Zoom** goes from 1 to 16 times, or **Fit**. **Overlays** switch on a grid, the
+sprites' boxes, the border, the beam, a heat tint for what was written lately and
+the lines where the registers changed. The patterns have Bank 0, 1 and 2.
+
+Point at a pixel to see it in **Pixel**: the tile or sprite and its address.
+Click to pin it, click again to let go. **Break on writes** stops the console when
+the CPU writes that VRAM byte or the matching video register.
+
+**Registers** shows the video registers with how long ago each changed,
+**Colours** the sixteen colours, **Lines** the screen bands and **Timing** the
+frame and line length. The VRAM section shows 16K a page at a time; type
+`addr [bytes...]`, for example `1800: 41 42 43`, and press Enter to write.
+Addresses wrap at 16K.
+
+<!-- context: debugger/sound -->
+## Sound
+
+The sound chips, read while the console is stopped: the SN76489's three tones,
+noise and attenuations decoded into frequencies and levels, and, with the Super
+Game Module, the AY-3-8910's registers.
+
+<!-- context: debugger/symbols -->
+## Symbols
+
+Every known symbol, the OS-7 table and the ones you loaded. **Filter** narrows the
+list, and activating a row goes to that address.
 
 <!-- context: debugger/fujinet -->
 ## FujiNet packets

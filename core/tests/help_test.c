@@ -26,7 +26,9 @@ static const char *const platform_names[] = { "GNOME", "KDE", "Windows", "macOS"
 /* What the frontends' Help buttons and menus open. */
 static const char *const contexts[] = {
     "main", "nobios", "controllers", "fujilog", "prefs/Machine", "prefs/Input", "prefs/ROMs",
-    "debugger/cpu", "debugger/vdp", "debugger/trace", "debugger/fujinet",
+    "debugger/console", "debugger/disassembly", "debugger/memory", "debugger/breakpoints",
+    "debugger/watches", "debugger/cart", "debugger/trace", "debugger/history", "debugger/video",
+    "debugger/sound", "debugger/symbols", "debugger/fujinet",
 };
 
 /* The Preferences pages: what each one has, as the frontends label it. */
@@ -280,10 +282,19 @@ check_ports(int p)
 static void
 check_debugger(int p)
 {
-    static const char *const words[] = { "Pause or Continue", "Step Into", "Step Over", "Step Out", "Trace",
-                                         "four tabs", "Clear all", "Bank 0" };
+    static const char *const words[] = { "Pause or Continue", "Step Into", "Step Over", "Step Out", "Run to Cursor",
+                                         "twelve tabs", "Pop Out", "Record", "Poke", "Bank 0", "Display", "Decoded",
+                                         "Beam", "Values", "Zoom", "Fit", "Overlays", "Pixel", "Registers", "Colours",
+                                         "Lines", "Timing", "Break on writes" };
+    static const char *const debug_commands[] = { "step", "over", "out", "run", "stop", "frame", "runto", "break",
+                                                  "bpr", "bpw", "bpa", "bpin", "bpout", "delete", "enable", "clear",
+                                                  "print", "regs", "set", "mem", "poke", "disasm", "find", "watch",
+                                                  "unwatch", "trace", "map", "io", "cart", "sound", "video", "symbols",
+                                                  "label", "labels", "save" };
     for (size_t k = 0; k < sizeof words / sizeof *words; k++)
         require(p, "debugger", "button", words[k]);
+    for (size_t k = 0; k < sizeof debug_commands / sizeof *debug_commands; k++)
+        require(p, "debugger/console", "command", debug_commands[k]);
 }
 
 int
@@ -313,7 +324,7 @@ main(void)
     CHECK(colecohelp_search(COLECOHELP_GNOME, "cartridge", hits, 16) > 0, "search cartridge");
     CHECK(colecohelp_search(COLECOHELP_GNOME, "zzqxj", hits, 16) == 0, "search nonsense");
     int n = colecohelp_search(COLECOHELP_KDE, "sprites", hits, 16);
-    CHECK(n > 0 && colecohelp_find("debugger/vdp", &t, &b) == 0
+    CHECK(n > 0 && colecohelp_find("debugger/video", &t, &b) == 0
           && hits[0].topic == t && hits[0].block == b, "sprites is the first hit");
     for (int i = 1; i < n; i++)
         CHECK(hits[i - 1].score >= hits[i].score, "hits best first");
