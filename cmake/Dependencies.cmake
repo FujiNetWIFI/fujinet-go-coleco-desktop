@@ -33,16 +33,13 @@
 
 find_package(Git QUIET)
 
-# adamcore, branch debug-hooks-coleco (2853010, tschak909/adamcore#7, stacked on
-# #4). On top of main (611bfe4d0), which carries the ColecoVision half this app needs:
+# adamcore, main (813632b). Carries the ColecoVision half this app needs:
 # the cartridge-device vtable (adamcore_cart_ops) the FujiNet mailbox plugs
 # into, the Opcode Super Game Module, the corrected stock-console memory map,
-# and adamcore-sources.cmake. Merged as tschak909/adamcore#1, with the SGM
-# validation against Oscar Toledo G.'s super_game_module_test.rom recorded in
-# its PROVENANCE.md as #2, it adds the debugger hooks: the Z80 bus hook and beam
-# (#4), per-line VDP register capture, an SN76489 register mirror and read-only
-# state accessors (#7). Move the pin to main once #4 and #7 are merged.
-set(ADAMCORE_COMMIT "285301061ef4689e89d01d08e1d0131102967587")
+# and adamcore-sources.cmake (tschak909/adamcore#1, #2), and the debugger hooks:
+# the Z80 bus hook and beam (#4), per-line VDP register capture, an SN76489
+# register mirror and read-only state accessors (#7).
+set(ADAMCORE_COMMIT "813632b67aa5491ffb1d224e5b09d0e8dc779e67")
 set(ADAMCORE_URL "https://github.com/tschak909/adamcore")
 
 # fujinet-firmware, master (643ed9e9b): carries the baked assembly CONFIG

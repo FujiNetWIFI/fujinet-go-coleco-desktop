@@ -110,4 +110,18 @@ int  coleco_host_stopping(void);
  * non-zero means the framebuffer changed. NULL restores run_frame. */
 void coleco_host_set_frame_fn(int (*fn)(void));
 
+/* The core's lifetime, for the debugger. The engine keeps its own pointer to
+ * the core, valid only under its lock, so a window polling during a session
+ * restart cannot touch freed memory.
+ *   created:    after adamcore_create, before the emulator thread exists
+ *   stopping:   a stop was requested, before the thread is joined -- wake a
+ *               machine parked at a breakpoint or the join never returns
+ *   destroying: the thread is gone, before the core is freed */
+typedef struct {
+    void (*created)(adamcore *core);
+    void (*stopping)(void);
+    void (*destroying)(adamcore *core);
+} coleco_host_core_hooks;
+void coleco_host_set_core_hooks(const coleco_host_core_hooks *hooks);
+
 #endif

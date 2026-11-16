@@ -115,7 +115,7 @@ modules:
       # src/machine.c (the SENTINEL) already here.
       - type: git
         url: https://github.com/tschak909/adamcore
-        commit: 285301061ef4689e89d01d08e1d0131102967587
+        commit: 813632b67aa5491ffb1d224e5b09d0e8dc779e67
         dest: third_party/adamcore
       # Pinned exactly as cmake/Dependencies.cmake: fujinet-firmware master
       # plus the assembly CONFIG (PR #2288), on the fork. Temporary: moves

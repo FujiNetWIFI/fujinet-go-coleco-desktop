@@ -74,11 +74,19 @@ set(COLECO_HOST_SOURCES coleco/host.c)
 # ADAMEm's is non-commercial-licensed and GPL-incompatible (COMPLIANCE.md).
 set(COLECO_DEBUGGER_SOURCES
   debugger/debugger.c
+  debugger/expr.c
+  debugger/prompt.c
+  debugger/memtools.c
+  debugger/iostate.c
   debugger/fujitrace.c
   debugger/z80dasm.c
   debugger/symbols.c
   debugger/symbols_builtin.c
   debugger/vdpview.c)
+
+# ---- VIDEO agent: the Video tab controller ----------------------------------
+list(APPEND COLECO_DEBUGGER_SOURCES debugger/vidtab.c)
+# ---- end VIDEO agent ---------------------------------------------------------
 
 # pad_assign.c is pure (no SDL, no session): the remembered pad -> port table.
 # It is in the core so its test links the core alone.

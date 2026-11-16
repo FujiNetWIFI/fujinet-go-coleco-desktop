@@ -14,6 +14,8 @@
 #include <string.h>
 #include <time.h>
 
+#include "adamcore_debug.h"
+#include "colecovidcap.h"
 #include "fujinet_cart.h"
 
 /* ---- state ---------------------------------------------------------------- */
@@ -27,6 +29,7 @@ static atomic_int s_reset_req = -1;
 static atomic_bool s_dbg_engaged;
 static atomic_bool s_audio_mute;
 static int (*s_frame_fn)(void);
+static coleco_host_core_hooks s_core_hooks;
 static char s_error[256];
 
 static uint8_t s_os7[ADAMCORE_OS7_ROM_SIZE];
@@ -83,6 +86,177 @@ static void frame_publish(const uint16_t *fb)
     if (s_frame_cb)
         s_frame_cb(s_frame_cb_ctx);
     pthread_mutex_unlock(&s_cb_lock);
+}
+
+/* ---- Video tab capture (VIDEO agent) ----------------------------------------
+ * While a Video tab exists (s_cap_want > 0) the machine thread copies the VDP
+ * and the finished frame once per frame into s_cap, and the core records the
+ * VDP registers of every scanline. s_cap_lock guards s_cap, s_core's lifetime
+ * for the parked read below, and s_lc_applied. */
+
+static pthread_mutex_t s_cap_lock = PTHREAD_MUTEX_INITIALIZER;
+static colecovid_capture *s_cap;
+static atomic_int s_cap_want;
+static int s_lc_applied;           /* the core's line capture is on (s_cap_lock) */
+
+static void rgb565_to_xrgb(const uint16_t *src, uint32_t *dst, size_t count)
+{
+    size_t item;
+    for (item = 0; item < count; item++) {
+        uint32_t pix = src[item];
+        uint32_t red = (pix >> 11) & 0x1F, grn = (pix >> 5) & 0x3F, blu = pix & 0x1F;
+        red = red << 3 | red >> 2;
+        grn = grn << 2 | grn >> 4;
+        blu = blu << 3 | blu >> 2;
+        dst[item] = red << 16 | grn << 8 | blu;
+    }
+}
+
+/* Match the core's line capture to whether anybody wants it. Machine thread,
+ * or the caller of capture_fill while the machine is parked. */
+static void capture_sync_locked(adamcore *core)
+{
+    int want = atomic_load(&s_cap_want) > 0;
+    if (core && want != s_lc_applied) {
+        adamcore_vdp_line_capture_enable(core, want);
+        s_lc_applied = want;
+        if (!want && s_cap) s_cap->serial = 0;
+    }
+}
+
+static void capture_sync(void)
+{
+    pthread_mutex_lock(&s_cap_lock);
+    capture_sync_locked(s_core);
+    pthread_mutex_unlock(&s_cap_lock);
+}
+
+/* Machine thread, a frame just finished. */
+static void capture_frame(void)
+{
+    adamcore *core = s_core;
+    colecovid_capture *cap;
+    uint64_t frame = 0;
+    int line, have = 0;
+
+    pthread_mutex_lock(&s_cap_lock);
+    cap = s_cap;
+    if (!core || !cap || atomic_load(&s_cap_want) <= 0) {
+        pthread_mutex_unlock(&s_cap_lock);
+        return;
+    }
+    adamcore_debug_beam(core, NULL, &frame);
+    rgb565_to_xrgb(adamcore_framebuffer(core, NULL, NULL), cap->pixels,
+                   (size_t)COLECOVID_FB_W * COLECOVID_FB_H);
+    cap->fb_valid = 1;
+    adamcore_vdp_state(core, cap->regs, &cap->status, &cap->addr);
+    {
+        adamcore_vdp_latch lat;
+        adamcore_vdp_latch_state(core, &lat);
+        cap->latch = lat.latch;
+        cap->latched = lat.latched;
+        cap->read_ahead = lat.read_ahead;
+        cap->int_line = lat.int_line;
+    }
+    memcpy(cap->palette565, adamcore_palette565(core), sizeof cap->palette565);
+    memcpy(cap->vram, adamcore_vdp_vram(core), sizeof cap->vram);
+
+    /* The lines of the frame that just finished carry its index: one less
+     * than the count of frames completed now. */
+    for (line = 0; line < COLECOVID_LINES; line++) {
+        colecovid_line *rec = &cap->log[line];
+        uint64_t stamp = 0;
+        rec->valid = 0;
+        if (frame > 0 &&
+            adamcore_vdp_line_regs(core, line, rec->regs, &rec->status, &stamp) &&
+            stamp == frame - 1) {
+            rec->valid = 1;
+            have++;
+        }
+    }
+    cap->log_valid = have == COLECOVID_LINES;
+    cap->log_frame = frame ? frame - 1 : 0;
+    cap->frame = frame;
+    cap->live = 0;
+    cap->live_pixels_valid = 0;
+    cap->serial++;
+    pthread_mutex_unlock(&s_cap_lock);
+}
+
+void coleco_host_capture_enable(int enable)
+{
+    pthread_mutex_lock(&s_cap_lock);
+    if (enable) {
+        if (!s_cap) s_cap = calloc(1, sizeof *s_cap);
+        if (s_cap) atomic_fetch_add(&s_cap_want, 1);
+    } else if (atomic_load(&s_cap_want) > 0) {
+        atomic_fetch_sub(&s_cap_want, 1);
+    }
+    /* The machine thread applies the change at the top of its next frame. */
+    pthread_mutex_unlock(&s_cap_lock);
+}
+
+int coleco_host_capture_get(colecovid_capture *dst, uint64_t *serial_inout)
+{
+    int changed = 0;
+    pthread_mutex_lock(&s_cap_lock);
+    if (s_cap && s_cap->serial != 0 && s_cap->serial != *serial_inout) {
+        memcpy(dst, s_cap, sizeof *dst);
+        *serial_inout = s_cap->serial;
+        changed = 1;
+    }
+    pthread_mutex_unlock(&s_cap_lock);
+    return changed;
+}
+
+int coleco_host_capture_fill(colecovid_capture *dst)
+{
+    adamcore *core;
+    uint64_t frame = 0;
+    int line, beam = 0;
+    adamcore_vdp_latch lat;
+    adamcore_cpu_aux_state aux;
+    adamcore_z80_regs regs;
+
+    pthread_mutex_lock(&s_cap_lock);
+    core = s_core;
+    if (!core) {
+        pthread_mutex_unlock(&s_cap_lock);
+        return 0;
+    }
+    /* The machine is parked, so this is also the moment to start the line
+     * log a tab asked for while the thread could not hear it. */
+    capture_sync_locked(core);
+    adamcore_debug_beam(core, &beam, &frame);
+    rgb565_to_xrgb(adamcore_framebuffer(core, NULL, NULL), dst->live_pixels,
+                   (size_t)COLECOVID_FB_W * COLECOVID_FB_H);
+    dst->live_pixels_valid = 1;
+    adamcore_vdp_state(core, dst->regs, &dst->status, &dst->addr);
+    adamcore_vdp_latch_state(core, &lat);
+    dst->latch = lat.latch;
+    dst->latched = lat.latched;
+    dst->read_ahead = lat.read_ahead;
+    dst->int_line = lat.int_line;
+    memcpy(dst->palette565, adamcore_palette565(core), sizeof dst->palette565);
+    memcpy(dst->vram, adamcore_vdp_vram(core), sizeof dst->vram);
+    for (line = 0; line < COLECOVID_LINES; line++) {
+        colecovid_line *rec = &dst->cur[line];
+        uint64_t stamp = 0;
+        rec->valid = 0;
+        if (adamcore_vdp_line_regs(core, line, rec->regs, &rec->status, &stamp) &&
+            stamp == frame)
+            rec->valid = 1;
+    }
+    dst->beam_line = beam;
+    dst->beam_tstate = adamcore_debug_beam_tstate(core);
+    adamcore_cpu_aux(core, &aux);
+    dst->nmi_count = aux.nmi_count;
+    adamcore_get_regs(core, &regs);
+    dst->cycles = regs.cycles;
+    dst->frame = frame;
+    dst->live = 1;
+    pthread_mutex_unlock(&s_cap_lock);
+    return 1;
 }
 
 int coleco_host_frame_copy(uint16_t *dst, uint64_t *serial_inout)
@@ -262,6 +436,7 @@ static void *machine_thread(void *arg)
         clock_gettime(CLOCK_MONOTONIC, &frame_start);
         if (mode >= 0)
             adamcore_request_reset(s_core, mode);
+        capture_sync();
 
         /* The stepped path only when the debugger is actually engaged:
          * adamcore_debug_run is bit-identical to adamcore_run_frame (its
@@ -272,6 +447,8 @@ static void *machine_thread(void *arg)
         else
             adamcore_run_frame(s_core);
         frame_publish(adamcore_framebuffer(s_core, NULL, NULL));
+        if (atomic_load(&s_cap_want) > 0)
+            capture_frame();
 
         if (vsync_usable(frame_ns) && wait_vsync(&vs_seen, vs_timeout_ns)) {
             /* Phase-locked: the display's cadence is the machine's. Keep the
@@ -375,7 +552,10 @@ int coleco_host_start(const coleco_host_opts *opts)
     /* The cartridge image is served by the cart device, not by adamcore's
      * flat window, so cart_path stays unset even when an image is loaded. */
 
+    pthread_mutex_lock(&s_cap_lock);
+    s_lc_applied = 0;
     s_core = adamcore_create(&cfg);
+    pthread_mutex_unlock(&s_cap_lock);
     if (!s_core) {
         snprintf(s_error, sizeof s_error,
                  "adamcore refused the configuration (is OS7.rom 8192 bytes?)");
@@ -384,8 +564,12 @@ int coleco_host_start(const coleco_host_opts *opts)
 
     atomic_store(&s_stop_req, false);
     atomic_store(&s_reset_req, -1);
+    if (s_core_hooks.created)
+        s_core_hooks.created(s_core);
     if (pthread_create(&s_thread, NULL, machine_thread, NULL) != 0) {
         snprintf(s_error, sizeof s_error, "Could not start the emulator thread");
+        if (s_core_hooks.destroying)
+            s_core_hooks.destroying(s_core);
         adamcore_destroy(s_core);
         s_core = NULL;
         return -1;
@@ -401,14 +585,24 @@ void coleco_host_stop(void)
     /* Wake the thread if it is parked waiting for a vsync that will never
      * come, so stopping a hidden window does not take a timeout. */
     coleco_host_notify_vsync(0);
+    if (s_core_hooks.stopping)
+        s_core_hooks.stopping();
     pthread_join(s_thread, NULL);
     atomic_store(&s_running, false);
 
+    if (s_core_hooks.destroying)
+        s_core_hooks.destroying(s_core);
     if (s_core) adamcore_set_cart_ops(s_core, NULL, NULL);
     coleco_cart_destroy(s_cart);
     s_cart = NULL;
+    /* A parked Video tab reads the core under s_cap_lock: take it so the
+     * core cannot be freed mid-read. */
+    pthread_mutex_lock(&s_cap_lock);
     adamcore_destroy(s_core);
     s_core = NULL;
+    s_lc_applied = 0;
+    if (s_cap) s_cap->serial = 0;
+    pthread_mutex_unlock(&s_cap_lock);
     free(s_cart_image);
     s_cart_image = NULL;
     s_cart_size = 0;
@@ -453,6 +647,14 @@ int coleco_host_stopping(void)
 void coleco_host_set_frame_fn(int (*fn)(void))
 {
     s_frame_fn = fn;
+}
+
+void coleco_host_set_core_hooks(const coleco_host_core_hooks *hooks)
+{
+    if (hooks)
+        s_core_hooks = *hooks;
+    else
+        memset(&s_core_hooks, 0, sizeof s_core_hooks);
 }
 
 void coleco_host_reset(void)

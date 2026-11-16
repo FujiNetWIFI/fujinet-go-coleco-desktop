@@ -22,6 +22,44 @@ target_link_libraries(fujitrace_test coleco_core)
 target_include_directories(fujitrace_test PRIVATE "${CMAKE_SOURCE_DIR}/core/debugger")
 add_test(NAME fujitrace COMMAND fujitrace_test)
 
+# ---- ENGINE agent: the debugger engine --------------------------------------
+# expr_test, memtools_test and prompt_test need no machine. engine_test starts
+# one on a hand-assembled 8K "BIOS" and needs no ROM either, so none of them
+# SKIP. It is the machine-boot test the Wine and macOS runners cannot run: it is
+# in the ctest -E lists of the workflows (see the CI notes).
+add_executable(expr_test expr_test.c)
+target_link_libraries(expr_test coleco_core)
+target_include_directories(expr_test PRIVATE "${CMAKE_SOURCE_DIR}/core/debugger")
+add_test(NAME expr COMMAND expr_test)
+
+add_executable(memtools_test memtools_test.c)
+target_link_libraries(memtools_test coleco_core)
+add_test(NAME memtools COMMAND memtools_test)
+
+add_executable(prompt_test prompt_test.c)
+target_link_libraries(prompt_test coleco_core)
+add_test(NAME prompt COMMAND prompt_test)
+
+add_executable(engine_test engine_test.c)
+target_link_libraries(engine_test coleco_core)
+add_test(NAME engine COMMAND engine_test)
+set_tests_properties(engine PROPERTIES TIMEOUT 120)
+# ---- end ENGINE agent --------------------------------------------------------
+
+# ---- VIDEO agent: the Video tab ---------------------------------------------
+# vidtab_test: the controller (core/debugger/vidtab.c) on made-up captures plus a
+# fuzz; no machine, no debugger, so it needs no BIOS and no SDL. The
+# COLECO_DEBUGGER_VIDEO_* variables are read when a tab is created: the second
+# test sets them (no setenv in the test: MinGW-safe).
+add_executable(vidtab_test vidtab_test.c)
+target_link_libraries(vidtab_test coleco_core)
+add_test(NAME vidtab COMMAND vidtab_test)
+set_tests_properties(vidtab PROPERTIES TIMEOUT 120)
+add_test(NAME vidtab_env COMMAND vidtab_test env)
+set_tests_properties(vidtab_env PROPERTIES TIMEOUT 30
+  ENVIRONMENT "COLECO_DEBUGGER_VIDEO_VIEW=beam;COLECO_DEBUGGER_VIDEO_SOURCE=palette;COLECO_DEBUGGER_VIDEO_OVERLAYS=grid,splits;COLECO_DEBUGGER_VIDEO_ZOOM=4;COLECO_DEBUGGER_VIDEO_SECTION=timing")
+# ---- end VIDEO agent ---------------------------------------------------------
+
 # The real machine on its real thread. Skips (77) without a BIOS, which is
 # every CI and release checkout -- this repository does not ship one.
 add_executable(boot_smoke boot_smoke.c)
@@ -108,6 +146,15 @@ add_test(NAME debug COMMAND debug_test "${CMAKE_SOURCE_DIR}/tools/roms")
 set_tests_properties(debug PROPERTIES SKIP_RETURN_CODE 77)
 
 
+# ---- VIDEO agent: the Video tab on a real machine ---------------------------
+# vidtab_live_test: Display == the published frame at a stop, Beam, a step, a
+# VRAM poke, the console text. Needs a BIOS and SKIPs (77) without one.
+add_executable(vidtab_live_test vidtab_live_test.c)
+target_link_libraries(vidtab_live_test coleco_session)
+add_test(NAME vidtab_live COMMAND vidtab_live_test "${CMAKE_SOURCE_DIR}/tools/roms")
+set_tests_properties(vidtab_live PROPERTIES SKIP_RETURN_CODE 77 TIMEOUT 90)
+# ---- end VIDEO agent ---------------------------------------------------------
+
 # The gamepad layer's pure helpers, and its start and stop with no hardware.
 add_executable(gamepad_test gamepad_test.c)
 target_link_libraries(gamepad_test coleco_session)
@@ -154,3 +201,23 @@ if(WIN32)
     endif()
   endforeach()
 endif()
+
+# ---- VIDEO agent: static runtime for the Windows test exes -------------------
+if(WIN32)
+  foreach(_t vidtab_test vidtab_live_test)
+    if(TARGET ${_t})
+      target_link_options(${_t} PRIVATE -static -static-libgcc -static-libstdc++)
+    endif()
+  endforeach()
+endif()
+# ---- end VIDEO agent ---------------------------------------------------------
+
+# ---- ENGINE agent: static runtime for the Windows test exes ------------------
+if(WIN32)
+  foreach(_t expr_test memtools_test prompt_test engine_test)
+    if(TARGET ${_t})
+      target_link_options(${_t} PRIVATE -static -static-libgcc -static-libstdc++)
+    endif()
+  endforeach()
+endif()
+# ---- end ENGINE agent --------------------------------------------------------
