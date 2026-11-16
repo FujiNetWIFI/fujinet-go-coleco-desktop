@@ -29,6 +29,7 @@ add_executable(fujinet-go-coleco-gnome
   help/help_window.c
   controllers/controllers_window.c
   debugger/dbg_window.c
+  debugger/dbg_video.c
 )
 target_link_libraries(fujinet-go-coleco-gnome
   PRIVATE coleco_session PkgConfig::GTK4 PkgConfig::ADW)

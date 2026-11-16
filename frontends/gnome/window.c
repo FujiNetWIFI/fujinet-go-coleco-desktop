@@ -383,7 +383,7 @@ gboolean coleco_window_key(ColecoWindow *self, guint keyval, guint keycode,
         return TRUE;
     }
     if (keyval == GDK_KEY_F12) {
-        coleco_debugger_show(GTK_WINDOW(self), self->session);
+        coleco_debugger_toggle(GTK_WINDOW(self), self->session);
         return TRUE;
     }
     /* Neither Ctrl nor Alt is a modifier here: Left Ctrl is Controller 1's
@@ -600,7 +600,7 @@ static void action_debugger(GSimpleAction *a, GVariant *p, gpointer user_data)
 {
     ColecoWindow *self = user_data;
     (void)a; (void)p;
-    coleco_debugger_show(GTK_WINDOW(self), self->session);
+    coleco_debugger_toggle(GTK_WINDOW(self), self->session);
 }
 
 static void action_reset_config(GSimpleAction *a, GVariant *p,
