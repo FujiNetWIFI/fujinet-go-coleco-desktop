@@ -117,14 +117,14 @@ modules:
         url: https://github.com/tschak909/adamcore
         commit: 813632b67aa5491ffb1d224e5b09d0e8dc779e67
         dest: third_party/adamcore
-      # Pinned exactly as cmake/Dependencies.cmake: fujinet-firmware master
-      # plus the assembly CONFIG (PR #2288), on the fork. Temporary: moves
-      # back to master when #2288 merges.
+      # Pinned exactly as cmake/Dependencies.cmake: fujinet-firmware fork branch
+      # coleco-rom-extension (PR #2443). Temporary: moves back to master when
+      # #2443 merges.
       # coleco_provide_dependency() skips its own fetch once it finds build.sh
       # (the SENTINEL) already here.
       - type: git
-        url: https://github.com/FujiNetWIFI/fujinet-firmware
-        commit: 643ed9e9bea588c464d24ed360c7ede5d741d13b
+        url: https://github.com/tschak909/fujinet-firmware
+        commit: 674d261dcb26165b8993e9affd3a3c44041b893a
         dest: third_party/fujinet-firmware
       # Same reasoning: the sandboxed build step has no network access, but
       # tools/fujinet/build-fujinet-desktop.sh needs mbedTLS 3.x and

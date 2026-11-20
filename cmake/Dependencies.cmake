@@ -42,13 +42,15 @@ find_package(Git QUIET)
 set(ADAMCORE_COMMIT "813632b67aa5491ffb1d224e5b09d0e8dc779e67")
 set(ADAMCORE_URL "https://github.com/tschak909/adamcore")
 
-# fujinet-firmware, master (643ed9e9b): carries the baked assembly CONFIG
+# fujinet-firmware, fork branch coleco-rom-extension (674d261dc = master 332994895 +
+# fw PR #2443, ColecoVision .rom/.bin carts mount again). Temporary: moves back
+# to FujiNetWIFI master when #2443 merges. Carries the baked assembly CONFIG
 # (#2288), the BoIP idle-wait fix (#2247) and APPBANK (#2286), the mapper that
 # serves M.U.L.E.'s 56K image (32K client plus 8K pages); without it
 # colmap_plan answers "no mapper fits" (boot error 03). Recorded in three
 # places -- here and in both flatpak manifests (build-aux/flatpak/*.yml).
-set(FUJINET_COMMIT "643ed9e9bea588c464d24ed360c7ede5d741d13b")
-set(FUJINET_URL "https://github.com/FujiNetWIFI/fujinet-firmware")
+set(FUJINET_COMMIT "674d261dcb26165b8993e9affd3a3c44041b893a")
+set(FUJINET_URL "https://github.com/tschak909/fujinet-firmware")
 
 # coleco_provide_dependency(NAME <n> PATH <p> SENTINEL <file> OVERRIDE <VAR>
 #                           RESULT <out>
